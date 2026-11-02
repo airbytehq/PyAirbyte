@@ -218,6 +218,16 @@ class AirbyteLibInputError(AirbyteLibError, ValueError):
 
 
 @dataclass
+class AirbyteUnsafeStreamConfigChangeError(AirbyteLibInputError):
+    """Updating stream configuration could invalidate saved sync state."""
+
+
+@dataclass
+class AirbyteConnectionSyncDisabledError(AirbyteLibInputError):
+    """A sync cannot start because the connection is disabled."""
+
+
+@dataclass
 class AirbyteDeletionGuardError(AirbyteLibInputError):
     """Deletion rejected: the resource name must contain 'delete-me' or 'deleteme'.
 
@@ -308,12 +318,12 @@ class AirbyteMissingWorkspaceContextError(AirbyteLibInputError):
         if is_mcp_mode():
             self.guidance = (
                 "The authenticated user's default workspace was checked and none was "
-                "available. `list_cloud_workspaces` returns direct workspace memberships "
+                "available. `list_workspaces` returns direct workspace memberships "
                 "by default; pass `organization_id`/`organization_name` or a broader "
                 "`privilege_scope` for organization-wide discovery, or call "
-                "`list_cloud_organizations` to search organizations by name. If exactly "
+                "`list_organizations` to search organizations by name. If exactly "
                 "one workspace is found, use it; otherwise ask the user to choose. Call "
-                "`get_default_cloud_context` to inspect your memberships."
+                "`get_default_workspace_context` to inspect your memberships."
             )
         else:
             self.guidance = (
@@ -697,7 +707,7 @@ class AirbyteConnectionSyncError(AirbyteCloudConnectionError):
 
 
 @dataclass
-class AirbyteConnectionSyncActiveError(AirbyteCloudConnectionError):
+class AirbyteConnectionSyncActiveError(AirbyteConnectionSyncError):
     """Rejected because a sync is currently running on this connection."""
 
 

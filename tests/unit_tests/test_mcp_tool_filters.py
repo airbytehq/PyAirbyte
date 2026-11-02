@@ -26,8 +26,8 @@ from airbyte.constants import (
     MCP_READONLY_MODE_ENV_VAR,
     _str_to_bool,
 )
-from airbyte.mcp import _tool_utils
-from fastmcp import FastMCP
+from airbyte.mcp import _tool_utils, cloud as cloud_mcp
+from fastmcp import Context, FastMCP
 from mcp.types import Tool
 
 
@@ -149,7 +149,7 @@ def test_ui_tool_wire_meta_carries_only_standard_ui_key() -> None:
 
     from airbyte.mcp.server import app as airbyte_app
 
-    tool = asyncio.run(airbyte_app.get_tool("show_connectors_list"))
+    tool = asyncio.run(airbyte_app.get_tool("show_connector_definitions"))
     wire = tool.to_mcp_tool().model_dump(by_alias=True)
 
     assert (wire.get("_meta") or {}).get("ui", {}).get("resourceUri")
@@ -206,13 +206,48 @@ def test_insiders_tool_visibility(
     assert insiders_filter(_tool("regular_tool"), APP) is True
 
 
+@pytest.mark.parametrize(
+    ("insiders", "destructive", "pipeline_changes", "readonly", "expected"),
+    [
+        pytest.param(None, None, None, None, False, id="insiders_unset"),
+        pytest.param("1", None, None, None, True, id="insiders_on"),
+        pytest.param("1", "0", None, None, False, id="destructive_tools_off"),
+        pytest.param("1", None, "0", None, False, id="pipeline_changes_off"),
+        pytest.param("1", None, None, "1", False, id="readonly_mode_on"),
+    ],
+)
+def test_unsafe_connection_update_tool_enabled(
+    monkeypatch: pytest.MonkeyPatch,
+    mcp_config: dict[str, str],
+    insiders: str | None,
+    destructive: str | None,
+    pipeline_changes: str | None,
+    readonly: str | None,
+    expected: bool,
+) -> None:
+    """The unsafe connection update is advertised only when every gate permits it."""
+    for env_var, value in (
+        (MCP_INSIDERS_ENV_VAR, insiders),
+        (MCP_ALLOW_DESTRUCTIVE_TOOLS_ENV_VAR, destructive),
+        (MCP_ALLOW_PIPELINE_CHANGES_ENV_VAR, pipeline_changes),
+        (MCP_READONLY_MODE_ENV_VAR, readonly),
+    ):
+        if value is None:
+            monkeypatch.delenv(env_var, raising=False)
+        else:
+            monkeypatch.setenv(env_var, value)
+
+    ctx = Context(fastmcp=FastMCP("unsafe-tool-policy-test"))
+    assert cloud_mcp._is_unsafe_connection_update_tool_enabled(ctx) is expected
+
+
 def test_sync_tools_stay_visible_when_pipeline_changes_are_disabled(
     monkeypatch: pytest.MonkeyPatch,
     mcp_config: dict[str, str],
 ) -> None:
     assert not mcp_config
     monkeypatch.setenv(MCP_ALLOW_PIPELINE_CHANGES_ENV_VAR, "0")
-    for tool_name in ("run_cloud_sync", "cancel_cloud_sync"):
+    for tool_name in ("run_connection_sync", "cancel_connection_sync"):
         tool = _policy_tool(tool_name, pipeline_change=False)
         assert _tool_utils.airbyte_readonly_mode_filter(tool, APP)
 
@@ -224,11 +259,11 @@ def test_non_read_only_tools_hidden_in_readonly_mode(
     """Read-only mode hides non-read-only tools but keeps read-only-annotated tools."""
     assert not mcp_config
     monkeypatch.setenv(MCP_READONLY_MODE_ENV_VAR, "1")
-    for tool_name in ("run_cloud_sync", "cancel_cloud_sync"):
+    for tool_name in ("run_connection_sync", "cancel_connection_sync"):
         tool = _policy_tool(tool_name, pipeline_change=False)
         assert not _tool_utils.airbyte_readonly_mode_filter(tool, APP)
     read_only_tool = _policy_tool(
-        "list_cloud_workspaces", pipeline_change=False, read_only_hint=True
+        "list_workspaces", pipeline_change=False, read_only_hint=True
     )
     assert _tool_utils.airbyte_readonly_mode_filter(read_only_tool, APP)
 
@@ -408,7 +443,7 @@ def test_local_tools_unaffected_by_readonly_and_destructive_policies(
     # No `ToolPolicy` registration: the tools exercise the real default
     # (non-read-only -> pipeline_change=True).
     destructive_local_tool = _policy_tool(
-        "destination_smoke_test",
+        "run_local_destination_smoke_test",
         pipeline_change=None,
         destructive_hint=True,
         module="local",
@@ -442,5 +477,5 @@ def test_real_server_keeps_local_tools_listed_under_cloud_denials(
             tool, airbyte_app
         ) and _tool_utils.airbyte_destructive_tools_filter(tool, airbyte_app)
 
-    assert visible("destination_smoke_test")
-    assert not visible("run_cloud_sync")
+    assert visible("run_local_destination_smoke_test")
+    assert not visible("run_connection_sync")

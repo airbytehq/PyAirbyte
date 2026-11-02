@@ -126,6 +126,9 @@ When enabled, only read-only Cloud tools are available. Write and destructive op
 disabled. Running and cancelling syncs are also disabled.
 
 Set the environment variable `AIRBYTE_CLOUD_MCP_READONLY_MODE=1` to enable read-only mode.
+HTTP clients that cannot send custom headers can use the shared standard filter's
+`?read-only=true` URL parameter, for example
+`https://mcp.airbyte.com/mcp?read-only=true`.
 
 ### Local Demo Mode
 
@@ -414,11 +417,12 @@ For issues and questions:
 
 """  # noqa: D415
 
-from airbyte.mcp import cloud, guidance, interactive, local, registry
+from airbyte.mcp import cloud, connector_builder, guidance, interactive, local, registry
 
 
 __all__: list[str] = [
     "cloud",
+    "connector_builder",
     "guidance",
     "interactive",
     "local",

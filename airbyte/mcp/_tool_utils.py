@@ -456,6 +456,7 @@ def get_tool_policy(tool: Tool | FastMCPTool) -> ToolPolicy:
 
 def mcp_tool(  # noqa: PLR0913 - mirrors the upstream decorator's kwargs
     *,
+    title: str | None = None,
     read_only: bool = False,
     destructive: bool = False,
     idempotent: bool = False,
@@ -475,11 +476,15 @@ def mcp_tool(  # noqa: PLR0913 - mirrors the upstream decorator's kwargs
 ) -> Callable[[_MCP_TOOL_FUNC], _MCP_TOOL_FUNC]:
     """Decorate an MCP tool with deferred Airbyte registration metadata.
 
+    When `title` is omitted, it is derived from the tool name in sentence case. Pass `title=`
+    only when the derived title reads poorly (acronyms, proper nouns, qualifiers).
+
     When `insiders_only` is true, the tool is hidden unless insiders mode is on
     (`AIRBYTE_MCP_INSIDERS` / `X-MCP-Insiders`). When `force_disabled` is true, the function
     is returned unchanged and never registered.
     """
     base_decorator = _mcp_tool(
+        title=title,
         read_only=read_only,
         destructive=destructive,
         idempotent=idempotent,
@@ -548,7 +553,7 @@ def _normalize_mcp_module(mcp_module: str) -> str:
     return mcp_module
 
 
-_CLOUD_MCP_MODULES = frozenset({"cloud", "interactive"})
+_CLOUD_MCP_MODULES = frozenset({"cloud", "connector_builder", "interactive"})
 """MCP tool modules backed by Airbyte Cloud APIs.
 
 Cloud-scoped policies (pipeline changes, read-only mode, destructive tools)
@@ -658,15 +663,15 @@ def delete_guard_disabled(app_or_ctx: FastMCP | Context) -> bool:
     )
 
 
-def _insiders_mode(app: FastMCP) -> bool | None:
-    """Return whether insiders tool modules are advertised for this request.
+def _insiders_mode(app_or_ctx: FastMCP | Context) -> bool | None:
+    """Return whether insiders tool modules are advertised for `app_or_ctx`.
 
     `AIRBYTE_MCP_INSIDERS` sets the deployment default and callers may only narrow it: a
     falsy host value denies insiders tools outright, while a truthy one still honors an
     explicit `X-MCP-Insiders: 0`. Returns `None` when neither is set to a recognized value.
     """
     hosted_mode = _str_to_bool(os.environ.get(MCP_INSIDERS_ENV_VAR))
-    caller_mode = _str_to_bool(get_mcp_config(app, MCP_CONFIG_INSIDERS))
+    caller_mode = _str_to_bool(get_mcp_config(app_or_ctx, MCP_CONFIG_INSIDERS))
 
     if hosted_mode is False:
         return False

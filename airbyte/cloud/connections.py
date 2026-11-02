@@ -7,9 +7,20 @@ import logging
 from http import HTTPStatus
 from typing import TYPE_CHECKING, Any, Literal, overload
 
+from airbyte_protocol.models import (
+    ConfiguredAirbyteCatalog,
+    DestinationSyncMode,
+    SyncMode,
+)
+
 from airbyte._direct_connectors import api_util as agents_api_util
 from airbyte._util import api_util
 from airbyte._util.cloud_errors import parse_cloud_error
+from airbyte.cloud._catalog_merge import (
+    _merge_catalog_with_configuration,
+    _preserve_api_only_catalog_fields,
+    _stream_descriptor,
+)
 from airbyte.cloud._connection_catalog import (
     _denormalize_catalog_to_api,
     _is_protocol_catalog_format,
@@ -23,6 +34,14 @@ from airbyte.cloud._connection_state import (
     _match_stream,
     _normalize_state_to_protocol,
 )
+from airbyte.cloud._stream_config_overrides import (
+    _apply_stream_override,
+    _changed_stream_config_fields,
+    _find_unsafe_stream_changes,
+    _index_catalog_streams,
+    _raise_for_override_errors,
+    _raise_for_unsafe_stream_config_changes,
+)
 from airbyte.cloud.connectors import CloudDestination, CloudSource
 from airbyte.cloud.constants import FINAL_STATUSES
 from airbyte.cloud.models import (
@@ -31,12 +50,16 @@ from airbyte.cloud.models import (
     ConnectionSchedule,
     ConnectionStatus,
     JobTypeEnum,
+    StreamConfigChange,
+    StreamConfigOverride,
+    StreamConfigUpdateResult,
     _ConnectionResponseLike,
 )
 from airbyte.cloud.sync_results import SyncResult
 from airbyte.exceptions import (
     AirbyteCloudError,
     AirbyteConnectionSyncActiveError,
+    AirbyteConnectionSyncDisabledError,
     AirbyteConnectionSyncError,
     AirbyteLibInputError,
     AirbyteMissingResourceError,
@@ -79,6 +102,141 @@ if TYPE_CHECKING:
 
     from airbyte._direct_connectors.models import ExternalSearchBackfillRequestResult
     from airbyte.cloud.workspaces import CloudWorkspace
+
+
+def _catalog_change_summary(
+    current_catalog: ConfiguredAirbyteCatalog,
+    updated_catalog: ConfiguredAirbyteCatalog,
+) -> tuple[list[StreamConfigChange], list[str], list[str]]:
+    current_streams = {
+        _stream_descriptor(entry.stream.name, entry.stream.namespace): entry
+        for entry in current_catalog.streams
+    }
+    updated_streams = {
+        _stream_descriptor(entry.stream.name, entry.stream.namespace): entry
+        for entry in updated_catalog.streams
+    }
+    changed_streams = [
+        StreamConfigChange(
+            name=entry.stream.name,
+            namespace=entry.stream.namespace,
+            changed_fields=changed_fields,
+        )
+        for descriptor, entry in updated_streams.items()
+        if (current_entry := current_streams.get(descriptor)) is not None
+        and (changed_fields := _changed_stream_config_fields(current_entry, entry))
+    ]
+
+    added_streams = [
+        (
+            f"{entry.stream.namespace}.{entry.stream.name}"
+            if entry.stream.namespace
+            else entry.stream.name
+        )
+        for descriptor, entry in updated_streams.items()
+        if descriptor not in current_streams
+    ]
+    removed_streams = [
+        (
+            f"{entry.stream.namespace}.{entry.stream.name}"
+            if entry.stream.namespace
+            else entry.stream.name
+        )
+        for descriptor, entry in current_streams.items()
+        if descriptor not in updated_streams
+    ]
+    return changed_streams, added_streams, removed_streams
+
+
+def _validate_discovered_catalog_schema(
+    catalog: ConfiguredAirbyteCatalog,
+    base_catalog: dict[str, Any],
+) -> None:
+    selected_descriptors = {
+        _stream_descriptor(
+            entry.get("stream", {}).get("name"),
+            entry.get("stream", {}).get("namespace"),
+        )
+        for entry in base_catalog.get("streams", [])
+        if entry.get("config", {}).get("selected") is True
+    }
+    for entry in catalog.streams:
+        descriptor = _stream_descriptor(entry.stream.name, entry.stream.namespace)
+        if descriptor not in selected_descriptors:
+            continue
+
+        properties = entry.stream.json_schema.get("properties")
+        top_level_fields = properties if isinstance(properties, dict) else {}
+        stream_label = (
+            f"{entry.stream.namespace}.{entry.stream.name}"
+            if entry.stream.namespace
+            else entry.stream.name
+        )
+        if (
+            entry.sync_mode is SyncMode.incremental
+            and entry.stream.source_defined_cursor is not True
+        ):
+            cursor_field = entry.cursor_field
+            if not cursor_field or cursor_field[0] not in top_level_fields:
+                missing_field = cursor_field[0] if cursor_field else "cursorField"
+                if cursor_field:
+                    message = (
+                        f"Stream '{stream_label}' uses cursor field '{missing_field}', "
+                        "which is missing from the discovered schema."
+                    )
+                else:
+                    message = (
+                        f"Stream '{stream_label}' has an empty or missing `cursorField` "
+                        "for incremental sync in the discovered schema."
+                    )
+                raise AirbyteLibInputError(
+                    message=(
+                        f"{message} Pass `override_stream_configs` for this stream with "
+                        "a cursor field that exists, or choose a sync mode that does not "
+                        "require one."
+                    ),
+                    context={
+                        "stream": stream_label,
+                        "missing_field": missing_field,
+                    },
+                )
+
+        if entry.destination_sync_mode is DestinationSyncMode.append_dedup:
+            primary_key = entry.primary_key or []
+            missing_key = (
+                "primaryKey"
+                if not primary_key
+                else next(
+                    (
+                        path[0] if path else "primaryKey"
+                        for path in primary_key
+                        if not path or path[0] not in top_level_fields
+                    ),
+                    None,
+                )
+            )
+            if missing_key is not None:
+                if missing_key == "primaryKey":
+                    message = (
+                        f"Stream '{stream_label}' uses deduplication but has no primary "
+                        "key in the discovered schema."
+                    )
+                else:
+                    message = (
+                        f"Stream '{stream_label}' uses primary key field '{missing_key}', "
+                        "which is missing from the discovered schema."
+                    )
+                raise AirbyteLibInputError(
+                    message=(
+                        f"{message} Pass `override_stream_configs` for this stream with "
+                        "a primary key that exists, or choose a destination sync mode "
+                        "that does not require one."
+                    ),
+                    context={
+                        "stream": stream_label,
+                        "missing_field": missing_key,
+                    },
+                )
 
 
 class CloudConnection:  # noqa: PLR0904  # Too many public methods
@@ -365,15 +523,15 @@ class CloudConnection:  # noqa: PLR0904  # Too many public methods
                 and ex.context.get("status_code") == HTTPStatus.CONFLICT
                 and not self.enabled
             ):
-                raise AirbyteLibInputError(
+                raise AirbyteConnectionSyncDisabledError(
                     message=(
                         f"Connection '{self.connection_id}' is disabled (status 'inactive'), "
                         "so a sync cannot be started."
                     ),
                     guidance=(
-                        "Re-enable the connection first (e.g. "
+                        "The connection is disabled. Re-enable the connection first (e.g. "
                         "`connection.set_enabled(enabled=True)`, or the "
-                        "`update_cloud_connection` MCP tool with `enabled=True`), then retry."
+                        "`update_connection` MCP tool with `enabled=True`), then retry."
                     ),
                     context={"connection_id": self.connection_id},
                 ) from ex
@@ -413,29 +571,40 @@ class CloudConnection:  # noqa: PLR0904  # Too many public methods
         if problem.slug != "try-again-later":
             return None
 
-        sync_results = self.get_previous_sync_logs(
-            limit=1,
-            job_type=JobTypeEnum.SYNC,
-        )
-        sync_result = sync_results[0] if sync_results else None
-        if sync_result is None or sync_result.is_job_complete():
+        try:
+            running_job = next(
+                (
+                    (result, job_type)
+                    for job_type in JobTypeEnum
+                    for result in self.get_previous_sync_logs(limit=1, job_type=job_type)
+                    if not result.is_job_complete()
+                ),
+                None,
+            )
+        except AirbyteCloudError:
+            return None
+        if running_job is None:
             return None
 
+        sync_result, job_type = running_job
         job_id = sync_result.job_id
         return AirbyteConnectionSyncActiveError(
             connection_id=self.connection_id,
+            job_id=job_id,
+            workspace=self.workspace,
             message=(
-                f"A sync is already running for connection '{self.connection_id}' "
+                f"A {job_type.value} job is already running for connection '{self.connection_id}' "
                 f"(job {job_id})."
             ),
             guidance=(
+                f"A {job_type.value} job is already running (job {job_id}). "
                 "Don't start another sync. Monitor the running job with "
                 f"`connection.get_sync_result(job_id={job_id})` or the "
-                "`get_cloud_sync_status` MCP tool "
+                "`get_connection_sync_status` MCP tool "
                 f"(`connection_id='{self.connection_id}', job_id={job_id}`). "
                 "Only if the user wants to restart it, cancel it first with "
                 f"`connection.cancel_sync(job_id={job_id})` or the "
-                "`cancel_cloud_sync` MCP tool "
+                "`cancel_connection_sync` MCP tool "
                 f"(`connection_id='{self.connection_id}', job_id={job_id}`), "
                 f"then run the sync again. Job URL: {sync_result.job_url}."
             ),
@@ -654,7 +823,7 @@ class CloudConnection:  # noqa: PLR0904  # Too many public methods
                         "or you don't have access to it."
                     ),
                     guidance=(
-                        "Use `list_cloud_sync_jobs` to find valid job IDs for this connection."
+                        "Use `list_connection_sync_jobs` to find valid job IDs for this connection."
                     ),
                     context={"connection_id": self.connection_id, "job_id": job_id},
                 ) from ex
@@ -667,7 +836,9 @@ class CloudConnection:  # noqa: PLR0904  # Too many public methods
                 message=(
                     f"Job {job_id} belongs to a different connection, not {self.connection_id}."
                 ),
-                guidance="Use `list_cloud_sync_jobs` to find valid job IDs for this connection.",
+                guidance=(
+                    "Use `list_connection_sync_jobs` to find valid job IDs for this connection."
+                ),
                 context={"connection_id": self.connection_id, "job_id": job_id},
             )
 
@@ -964,7 +1135,13 @@ class CloudConnection:  # noqa: PLR0904  # Too many public methods
             return _normalize_catalog_to_protocol(raw)
         return raw
 
-    def import_raw_catalog(self, catalog: dict[str, Any]) -> None:
+    def import_raw_catalog(
+        self,
+        catalog: dict[str, Any],
+        *,
+        skip_reset: bool = True,
+        source_catalog_id: str | None = None,
+    ) -> None:
         """Replace the configured catalog for this connection.
 
         > ⚠️ **WARNING:** Modifying the catalog directly is not recommended and
@@ -982,6 +1159,8 @@ class CloudConnection:  # noqa: PLR0904  # Too many public methods
 
         Args:
             catalog: The configured catalog dict in either format.
+            skip_reset: Whether to skip the platform reset of changed streams.
+            source_catalog_id: Optional source catalog ID associated with the update.
         """
         if _is_protocol_catalog_format(catalog):
             catalog = _denormalize_catalog_to_api(catalog)
@@ -994,6 +1173,244 @@ class CloudConnection:  # noqa: PLR0904  # Too many public methods
             client_secret=self.workspace.client_secret,
             bearer_token=self.workspace.bearer_token,
             config_api_root=self.workspace.config_api_root,
+            skip_reset=skip_reset,
+            source_catalog_id=source_catalog_id,
+        )
+        self._connection_info = None
+
+    def _evaluate_stream_config_updates(
+        self,
+        overrides: list[StreamConfigOverride],
+        *,
+        allow_unsafe: bool = False,
+        current_catalog: dict[str, Any] | None = None,
+        base_catalog: dict[str, Any] | None = None,
+    ) -> tuple[
+        ConfiguredAirbyteCatalog,
+        list[StreamConfigChange],
+        list[StreamConfigChange],
+        list[StreamConfigChange],
+        list[str],
+        list[str],
+    ]:
+        """Validate overrides and evaluate their effect without writing the catalog."""
+        if not overrides and base_catalog is None:
+            raise AirbyteLibInputError(
+                message="At least one stream configuration override must be provided.",
+            )
+
+        if current_catalog is None:
+            current_catalog = self.dump_raw_catalog(normalize=False)
+        if current_catalog is None:
+            raise AirbyteLibInputError(
+                message="Connection catalog is empty or missing.",
+                context={"connection_id": self.connection_id},
+            )
+
+        old_catalog = ConfiguredAirbyteCatalog.model_validate(
+            _normalize_catalog_to_protocol(current_catalog)
+        )
+        validate_discovered_catalog = base_catalog is not None
+        base_catalog = current_catalog if base_catalog is None else base_catalog
+        catalog = ConfiguredAirbyteCatalog.model_validate(
+            _normalize_catalog_to_protocol(base_catalog)
+        )
+        available_streams = _index_catalog_streams(
+            catalog,
+            connection_id=self.connection_id,
+        )
+        catalog = catalog.model_copy(deep=True)
+
+        validation_errors: list[str] = []
+        updated_streams: list[StreamConfigChange] = []
+        override_keys: set[tuple[str, str | None]] = set()
+        for index, override in enumerate(overrides, start=1):
+            result = _apply_stream_override(
+                catalog,
+                override,
+                override_index=index,
+                override_keys=override_keys,
+            )
+            if isinstance(result, str):
+                validation_errors.append(result)
+            else:
+                updated_streams.append(result)
+
+        _raise_for_override_errors(
+            validation_errors,
+            available_streams,
+            connection_id=self.connection_id,
+        )
+
+        if validate_discovered_catalog:
+            _validate_discovered_catalog_schema(catalog, base_catalog)
+
+        catalog_changes, added_streams, removed_streams = _catalog_change_summary(
+            old_catalog,
+            catalog,
+        )
+        unsafe_streams: list[StreamConfigChange] = []
+        if catalog_changes:
+            state_messages = self.dump_raw_state(normalize=True)
+            unsafe_streams = _find_unsafe_stream_changes(
+                old_catalog,
+                catalog,
+                state_messages,
+            )
+
+        _raise_for_unsafe_stream_config_changes(
+            unsafe_streams,
+            allow_unsafe=allow_unsafe,
+            connection_id=self.connection_id,
+        )
+        return (
+            catalog,
+            updated_streams,
+            unsafe_streams,
+            catalog_changes,
+            added_streams,
+            removed_streams,
+        )
+
+    def _get_discover_catalog_and_id(
+        self,
+        discover_request_id: str,
+    ) -> tuple[dict[str, Any], str]:
+        if not isinstance(discover_request_id, str) or not discover_request_id.strip():
+            raise AirbyteLibInputError(
+                message="`discover_request_id` must be a non-empty string.",
+            )
+
+        command_status = api_util.get_command_status(
+            discover_request_id,
+            api_root=self.workspace.api_root,
+            config_api_root=self.workspace.config_api_root,
+            client_id=self.workspace.client_id,
+            client_secret=self.workspace.client_secret,
+            bearer_token=self.workspace.bearer_token,
+        )
+        request_status = command_status.get("status")
+        if request_status != "completed":
+            if request_status in {"pending", "running"}:
+                message = (
+                    "The source catalog discover is still running. Poll "
+                    "`discover_source_catalog` and retry after it completes."
+                )
+            else:
+                message = (
+                    "The source catalog discover ended without a catalog. Start a new "
+                    "`discover_source_catalog` request before updating the connection."
+                )
+            raise AirbyteLibInputError(
+                message=message,
+                context={
+                    "discover_request_id": discover_request_id,
+                    "request_status": request_status,
+                },
+            )
+
+        output = api_util.get_discover_command_output(
+            discover_request_id,
+            api_root=self.workspace.api_root,
+            config_api_root=self.workspace.config_api_root,
+            client_id=self.workspace.client_id,
+            client_secret=self.workspace.client_secret,
+            bearer_token=self.workspace.bearer_token,
+        )
+        if output.get("status") == "failed":
+            failure = output.get("failureReason")
+            external_message = failure.get("externalMessage") if isinstance(failure, dict) else None
+            message = "The source catalog discover failed."
+            if isinstance(external_message, str) and external_message.strip():
+                message = (
+                    f"{message}\n{external_message.strip()}\n"
+                    "Run `discover_source_catalog` again after correcting the source issue."
+                )
+            else:
+                message = (
+                    f"{message} Run `discover_source_catalog` again after correcting "
+                    "the source issue."
+                )
+            raise AirbyteLibInputError(
+                message=message,
+                context={"discover_request_id": discover_request_id},
+            )
+
+        discovered_catalog = output.get("catalog")
+        catalog_id = output.get("catalogId")
+        if (
+            output.get("status") != "succeeded"
+            or not isinstance(discovered_catalog, dict)
+            or not isinstance(catalog_id, str)
+            or not catalog_id
+        ):
+            raise AirbyteLibInputError(
+                message=(
+                    "The discover output is no longer available. Run "
+                    "`discover_source_catalog` again before updating the connection."
+                ),
+                context={"discover_request_id": discover_request_id},
+            )
+        return discovered_catalog, catalog_id
+
+    def update_stream_configs(
+        self,
+        overrides: list[StreamConfigOverride],
+        *,
+        allow_unsafe: bool = False,
+        discover_request_id: str | None = None,
+    ) -> StreamConfigUpdateResult:
+        """Update one or more stream configurations in a single catalog write."""
+        current_catalog: dict[str, Any] | None = None
+        base_catalog: dict[str, Any] | None = None
+        applied_source_catalog_id: str | None = None
+        if discover_request_id is not None:
+            discovered_catalog, applied_source_catalog_id = self._get_discover_catalog_and_id(
+                discover_request_id
+            )
+            current_catalog = self.dump_raw_catalog(normalize=False)
+            if current_catalog is None:
+                raise AirbyteLibInputError(
+                    message="Connection catalog is empty or missing.",
+                    context={"connection_id": self.connection_id},
+                )
+            base_catalog = _merge_catalog_with_configuration(
+                current_catalog,
+                discovered_catalog,
+            )
+
+        (
+            catalog,
+            updated_streams,
+            unsafe_streams,
+            catalog_changes,
+            added_streams,
+            removed_streams,
+        ) = self._evaluate_stream_config_updates(
+            overrides,
+            allow_unsafe=allow_unsafe,
+            current_catalog=current_catalog,
+            base_catalog=base_catalog,
+        )
+        reset_requested = bool(unsafe_streams and allow_unsafe)
+        raw_catalog = _denormalize_catalog_to_api(
+            catalog.model_dump(mode="json", exclude_unset=True)
+        )
+        if base_catalog is not None:
+            raw_catalog = _preserve_api_only_catalog_fields(base_catalog, raw_catalog)
+        self.import_raw_catalog(
+            raw_catalog,
+            skip_reset=not reset_requested,
+            source_catalog_id=applied_source_catalog_id,
+        )
+        return StreamConfigUpdateResult(
+            updated_streams=updated_streams,
+            unsafe_streams=unsafe_streams,
+            reset_streams=catalog_changes if reset_requested else [],
+            reset_requested=reset_requested,
+            applied_source_catalog_id=applied_source_catalog_id,
+            added_streams=added_streams,
+            removed_streams=removed_streams,
         )
 
     def rename(self, name: str) -> CloudConnection:

@@ -5,10 +5,13 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import asdict, dataclass, is_dataclass
+from datetime import datetime  # noqa: TC003  # Needed at runtime for Pydantic field types.
 from enum import Enum
 from typing import Any, Literal, Protocol
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
+
+from airbyte_protocol.models import DestinationSyncMode, SyncMode  # noqa: TC001
 
 from airbyte._direct_connectors.models import (
     DirectAccessGuidance,
@@ -57,6 +60,8 @@ class _JobResponseLike(Protocol):
     bytes_synced: int | None
     rows_synced: int | None
     start_time: str
+    duration: str | None
+    last_updated_at: str | None
 
 
 class ConnectionStatus(StrEnum):
@@ -390,6 +395,86 @@ class ConnectionSchedule(BaseModel):
         return self.friendly_description
 
 
+class StreamConfigOverride(BaseModel):
+    """Overrides for one stream's sync configuration."""
+
+    stream_name: str
+    """The stream name to update."""
+
+    stream_namespace: str | None = None
+    """The namespace to match; `None` matches any namespace and `""` matches
+    unnamespaced streams."""
+
+    sync_mode: SyncMode | None = None
+    """The source sync mode to set, or `None` to keep the current mode."""
+
+    destination_sync_mode: DestinationSyncMode | None = None
+    """The destination sync mode to set, or `None` to keep the current mode."""
+
+    cursor_field: str | None = None
+    """The top-level cursor field name to set, or `None` to keep the current cursor."""
+
+    @model_validator(mode="after")
+    def require_setting(self) -> StreamConfigOverride:
+        """Require at least one sync configuration setting."""
+        if (
+            self.sync_mode is None
+            and self.destination_sync_mode is None
+            and self.cursor_field is None
+        ):
+            raise ValueError("At least one stream configuration setting must be provided.")
+        return self
+
+
+class StreamConfigChange(BaseModel):
+    """A stream whose requested sync configuration was applied."""
+
+    name: str
+    namespace: str | None = None
+    changed_fields: list[str]
+
+    @property
+    def label(self) -> str:
+        """Return the namespace-qualified stream label."""
+        return f"{self.namespace}.{self.name}" if self.namespace else self.name
+
+
+class StreamConfigUpdateResult(BaseModel):
+    """Result of updating stream sync configurations on a connection."""
+
+    updated_streams: list[StreamConfigChange]
+    unsafe_streams: list[StreamConfigChange]
+    reset_streams: list[StreamConfigChange]
+    reset_requested: bool
+    applied_source_catalog_id: str | None = None
+    added_streams: list[str] = Field(default_factory=list)
+    removed_streams: list[str] = Field(default_factory=list)
+
+    def summary_lines(self) -> list[str]:
+        """Return concise summaries of catalog and stream configuration updates."""
+        updated_names = [stream.label for stream in self.updated_streams]
+        changes: list[str] = []
+        if updated_names:
+            changes.append(f"updated stream configs for {updated_names}")
+        if self.applied_source_catalog_id is not None:
+            changes.append(f"applied source catalog '{self.applied_source_catalog_id}'")
+        if self.added_streams:
+            changes.append(f"added streams {self.added_streams}")
+        if self.removed_streams:
+            changes.append(f"removed streams {self.removed_streams}")
+        if not self.unsafe_streams:
+            return changes
+
+        unsafe_names = [stream.label for stream in self.unsafe_streams]
+        reset_names = [stream.label for stream in self.reset_streams]
+        changes.append(
+            f"unsafe streams {unsafe_names}; the platform will refresh or reset changed "
+            f"streams {reset_names} (refresh keeps data if the destination supports it; "
+            "otherwise a reset clears that stream's destination data)"
+        )
+        return changes
+
+
 class CloudConnectionInfo(BaseModel):
     """Information about an Airbyte Cloud connection."""
 
@@ -470,6 +555,12 @@ class CloudJobInfo(BaseModel):
     start_time: str
     """The job start time."""
 
+    duration: str | None = None
+    """The job's ISO 8601 duration (e.g. `PT1M9S`), if available."""
+
+    last_updated_at: str | None = None
+    """When the job was last updated, if available. For a finished job, this is when it ended."""
+
     @classmethod
     def from_api_response(cls, job: _JobResponseLike) -> CloudJobInfo:
         """Create a public model from an internal API job response."""
@@ -479,6 +570,8 @@ class CloudJobInfo(BaseModel):
             bytes_synced=job.bytes_synced,
             rows_synced=job.rows_synced,
             start_time=job.start_time,
+            duration=job.duration,
+            last_updated_at=job.last_updated_at,
         )
 
 
@@ -507,6 +600,32 @@ class CloudSourceInfo(BaseModel):
             definition_id=source.definition_id,
             configuration=_configuration_dict(source.configuration),
         )
+
+
+class CloudSourceCatalogDiffStreamSummary(BaseModel):
+    """Summary of one stream transformation in a catalog diff."""
+
+    stream_name: str
+    stream_namespace: str | None = None
+    transform_type: str
+    breaking_flags: list[bool] = Field(default_factory=list)
+    field_additions_count: int = 0
+    field_removals_count: int = 0
+
+
+class CloudSourceCatalogDiscoverResult(BaseModel):
+    """Status or outcome of discovering a Cloud source catalog."""
+
+    source_id: str | None = None
+    discover_request_id: str | None = None
+    request_status: Literal["pending", "running", "completed", "cancelled"] | None = None
+    outcome: Literal["succeeded", "failed"] | None = None
+    source_catalog_id: str | None = None
+    stream_count: int | None = None
+    updated_at: datetime | None = None
+    failure_reason: str | None = None
+    catalog_diff_summary: list[CloudSourceCatalogDiffStreamSummary] | None = None
+    schema_change: Literal["no_change", "non_breaking", "breaking"] | None = None
 
 
 class CloudDestinationInfo(BaseModel):
@@ -599,6 +718,9 @@ def _enum_value(value: object) -> str:
 
 __all__ = [
     "CloudConnectionInfo",
+    "StreamConfigOverride",
+    "StreamConfigChange",
+    "StreamConfigUpdateResult",
     "ConnectionStatus",
     "ConnectionSchedule",
     "CloudCustomSourceDefinitionInfo",

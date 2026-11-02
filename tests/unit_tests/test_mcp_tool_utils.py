@@ -283,19 +283,30 @@ def test_server_tools_register_expected_policies() -> None:
         "execute_external_api_query",
         "execute_external_sql_query",
         "execute_external_search_query",
-        "get_cloud_search_status",
-        "get_agent_skill_docs",
+        "get_search_index_status",
+        "get_external_access_skill_docs",
     )
     for tool_name in external_tools:
         assert _TOOL_POLICIES[tool_name].external_access
 
-    for tool_name in ("run_cloud_sync", "cancel_cloud_sync"):
+    for tool_name in ("run_connection_sync", "cancel_connection_sync"):
         assert _TOOL_POLICIES[tool_name].pipeline_change is False
 
     insiders_tools = {
         name for name, policy in _TOOL_POLICIES.items() if policy.insiders_only
     }
-    assert insiders_tools == set()
+    assert insiders_tools == {
+        "create_connector_builder_project",
+        "update_connector_builder_manifest_text",
+        "set_connector_builder_testing_values",
+        "run_connector_builder_stream_test_read",
+        "get_connector_builder_resolved_manifest",
+        "run_connector_builder_readiness_checks",
+        "list_connector_builder_published_versions",
+        "get_connector_builder_published_manifest",
+        "revert_connector_builder_published_version",
+        "update_connection_unsafe",
+    }
 
 
 @pytest.mark.parametrize(
@@ -407,11 +418,11 @@ def test_mcp_tool_dedents_docstring_before_extra_help_text() -> None:
 @pytest.mark.parametrize(
     "tool_name",
     [
-        "validate_connector_config",
-        "list_dotenv_secrets",
-        "list_source_streams",
-        "get_stream_previews",
-        "run_sql_query",
+        "validate_local_connector_config",
+        "list_local_dotenv_secrets",
+        "list_local_source_streams",
+        "get_local_stream_previews",
+        "run_local_sql_query",
     ],
 )
 def test_local_tool_descriptions_are_dedented(tool_name: str) -> None:

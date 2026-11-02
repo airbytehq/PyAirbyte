@@ -135,7 +135,7 @@ def test_organization_argument_is_recorded_without_a_workspace(
     monkeypatch: pytest.MonkeyPatch, events: list[TelemetryRecord]
 ) -> None:
     monkeypatch.setattr(CloudClient, "list_workspaces", lambda self, **_: [])
-    _call("list_cloud_workspaces", {"organization_id": ORGANIZATION})
+    _call("list_workspaces", {"organization_id": ORGANIZATION})
     assert _scope_of(events[-1]) == (None, ORGANIZATION, "arg")
 
 
@@ -158,7 +158,7 @@ def test_non_uuid_argument_is_not_recorded_or_replaced_by_the_header(
 
 
 def test_tools_without_cloud_scope_record_nulls(events: list[TelemetryRecord]) -> None:
-    _call("get_connector_info", {"connector_name": "source-faker"})
+    _call("get_connector_definition", {"connector_name": "source-faker"})
     assert _scope_of(events[-1]) == (None, None, None)
 
 
@@ -167,7 +167,7 @@ def test_scope_does_not_leak_between_calls(
 ) -> None:
     _stub_workspace(monkeypatch, default=WORKSPACE)
     _call("list_custom_source_definitions", {})
-    _call("get_connector_info", {"connector_name": "source-faker"})
+    _call("get_connector_definition", {"connector_name": "source-faker"})
     assert [_scope_of(event) for event in events[-2:]] == [
         (WORKSPACE, None, "default"),
         (None, None, None),
@@ -242,9 +242,9 @@ def test_resolved_organization_cannot_replace_or_mismatch_scope(
 @pytest.mark.parametrize(
     "tool",
     [
-        "describe_cloud_workspace",
-        "describe_cloud_organization",
-        "get_cloud_organization_billing_status",
+        "describe_workspace",
+        "describe_organization",
+        "get_organization_billing_status",
     ],
 )
 def test_cloud_tool_records_resolved_organization(monkeypatch, events, tool):
@@ -281,7 +281,7 @@ def test_cloud_tool_records_resolved_organization(monkeypatch, events, tool):
         "get_workspace",
         lambda **_: SimpleNamespace(workspace_id=WORKSPACE, name="Example"),
     )
-    workspace_tool = tool == "describe_cloud_workspace"
+    workspace_tool = tool == "describe_workspace"
     _call(
         tool,
         {"workspace_id": WORKSPACE}
@@ -313,7 +313,7 @@ def test_name_scoped_workspace_listing_records_only_a_single_organization(
         "get_organization",
         lambda *_, **__: SimpleNamespace(organization_name="Example"),
     )
-    _call("list_cloud_workspaces", {"organization_name": "Example"})
+    _call("list_workspaces", {"organization_name": "Example"})
     assert events[-1].success
     assert _scope_of(events[-1]) == (
         (None, ORGANIZATION, "resolved") if len(org_ids) == 1 else (None, None, None)
@@ -360,8 +360,8 @@ def verified_user(monkeypatch: pytest.MonkeyPatch) -> Iterator[list[str]]:
 def test_unscoped_call_falls_back_to_the_users_default_organization(
     events: list[TelemetryRecord], verified_user: list[str]
 ) -> None:
-    _call("get_connector_info", {"connector_name": "source-faker"})
-    _call("get_connector_info", {"connector_name": "source-faker"})
+    _call("get_connector_definition", {"connector_name": "source-faker"})
+    _call("get_connector_definition", {"connector_name": "source-faker"})
     assert [_scope_of(event) for event in events[-2:]] == [
         (None, ORGANIZATION, "user_default"),
         (None, ORGANIZATION, "user_default"),
@@ -398,7 +398,7 @@ def test_unscoped_call_without_a_default_workspace_records_nulls(
     monkeypatch.setattr(
         api_util, "get_user_by_auth_id", lambda *_, **__: {"userId": USER}
     )
-    _call("get_connector_info", {"connector_name": "source-faker"})
+    _call("get_connector_definition", {"connector_name": "source-faker"})
     assert _scope_of(events[-1]) == (None, None, None)
     assert verified_user == []
 
@@ -409,7 +409,7 @@ def test_name_scoped_call_does_not_fall_back_to_the_users_default_organization(
     verified_user: list[str],
 ) -> None:
     monkeypatch.setattr(CloudClient, "list_workspaces", lambda self, **_: [])
-    _call("list_cloud_workspaces", {"organization_name": "Other Org"})
+    _call("list_workspaces", {"organization_name": "Other Org"})
     assert _scope_of(events[-1]) == (None, None, None)
     assert verified_user == []
 
@@ -424,8 +424,8 @@ def test_failed_default_organization_lookup_is_not_retried(
         raise ConnectionError(workspace_id)
 
     monkeypatch.setattr(api_util, "get_workspace_organization_info", fail)
-    _call("get_connector_info", {"connector_name": "source-faker"})
-    _call("get_connector_info", {"connector_name": "source-faker"})
+    _call("get_connector_definition", {"connector_name": "source-faker"})
+    _call("get_connector_definition", {"connector_name": "source-faker"})
     assert [_scope_of(event) for event in events[-2:]] == [(None, None, None)] * 2
     assert verified_user == [OTHER_WORKSPACE]
 
@@ -448,11 +448,13 @@ def test_slow_default_organization_lookup_does_not_block_the_tool(
     async def run() -> None:
         async with Client(server.app) as client:
             arguments = {"connector_name": "source-faker"}
-            await asyncio.wait_for(client.call_tool("get_connector_info", arguments), 5)
+            await asyncio.wait_for(
+                client.call_tool("get_connector_definition", arguments), 5
+            )
             release.set()
             while _user_identity._pending_default_organization_lookups:
                 await asyncio.sleep(0.01)
-            await client.call_tool("get_connector_info", arguments)
+            await client.call_tool("get_connector_definition", arguments)
 
     try:
         asyncio.run(run())
