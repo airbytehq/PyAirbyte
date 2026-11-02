@@ -12,6 +12,76 @@ from __future__ import annotations
 from copy import deepcopy
 from typing import Any
 
+from pydantic import BaseModel, ConfigDict, Field
+from pydantic.alias_generators import to_camel
+
+from airbyte_protocol.models import AirbyteStream, SyncMode
+
+
+_API_MODEL_CONFIG = ConfigDict(
+    extra="allow",
+    alias_generator=to_camel,
+    populate_by_name=True,
+)
+
+
+class _ApiStream(AirbyteStream):
+    model_config = _API_MODEL_CONFIG
+
+
+class _SelectedField(BaseModel):
+    model_config = _API_MODEL_CONFIG
+
+    field_path: list[str]
+
+
+class _ApiStreamConfig(BaseModel):
+    model_config = _API_MODEL_CONFIG
+
+    sync_mode: SyncMode | None = None
+    destination_sync_mode: str | None = None
+    cursor_field: list[str] | None = None
+    primary_key: list[list[str]] | None = None
+    selected: bool | None = None
+    suggested: bool | None = None
+    field_selection_enabled: bool | None = None
+    selected_fields: list[_SelectedField] | None = None
+    hashed_fields: list[_SelectedField] | None = None
+    mappers: list[dict[str, Any]] | None = None
+    alias_name: str | None = None
+    include_files: bool | None = None
+    destination_object_name: str | None = None
+
+
+class _ApiCatalogEntry(BaseModel):
+    model_config = _API_MODEL_CONFIG
+
+    stream: _ApiStream
+    config: _ApiStreamConfig
+
+
+class _ApiCatalog(BaseModel):
+    model_config = _API_MODEL_CONFIG
+
+    streams: list[_ApiCatalogEntry] = Field(default_factory=list)
+
+
+def _copy_explicit_fields(
+    source: BaseModel,
+    target: BaseModel,
+    *,
+    only_missing: bool = False,
+) -> None:
+    for field_name in source.model_fields_set:
+        if only_missing and field_name in target.model_fields_set:
+            continue
+        setattr(target, field_name, deepcopy(getattr(source, field_name)))
+
+
+def _unset_field(model: BaseModel, field_name: str) -> None:
+    setattr(model, field_name, None)
+    model.model_fields_set.discard(field_name)
+
 
 def _stream_descriptor(
     name: str | None,
@@ -20,110 +90,110 @@ def _stream_descriptor(
     return name, namespace or None
 
 
-def _top_level_fields(stream: dict[str, Any]) -> list[str]:
-    schema = stream.get("jsonSchema")
-    properties = schema.get("properties") if isinstance(schema, dict) else None
-    return list(properties) if isinstance(properties, dict) else []
+def _top_level_fields(stream: _ApiStream) -> list[str]:
+    try:
+        properties = stream.json_schema["properties"]
+        return list(properties.keys())
+    except (AttributeError, KeyError):
+        return []
 
 
 def _merge_sync_mode(
-    output_config: dict[str, Any],
-    configured_config: dict[str, Any],
-    discovered_config: dict[str, Any],
-    discovered_stream: dict[str, Any],
+    output_config: _ApiStreamConfig,
+    configured_config: _ApiStreamConfig,
+    discovered_config: _ApiStreamConfig,
+    discovered_stream: _ApiStream,
 ) -> None:
-    configured_sync_mode = configured_config.get("syncMode")
-    supported_sync_modes = discovered_stream.get("supportedSyncModes", [])
-    if configured_sync_mode in supported_sync_modes:
-        output_config["syncMode"] = deepcopy(configured_sync_mode)
-    elif "syncMode" in discovered_config:
-        output_config["syncMode"] = deepcopy(discovered_config["syncMode"])
+    configured_sync_mode = configured_config.sync_mode
+    if configured_sync_mode in discovered_stream.supported_sync_modes:
+        output_config.sync_mode = deepcopy(configured_sync_mode)
+    elif "sync_mode" in discovered_config.model_fields_set:
+        output_config.sync_mode = deepcopy(discovered_config.sync_mode)
     else:
-        output_config.pop("syncMode", None)
+        _unset_field(output_config, "sync_mode")
 
 
 def _merge_cursor_field(
-    output_config: dict[str, Any],
-    configured_config: dict[str, Any],
-    discovered_config: dict[str, Any],
+    output_config: _ApiStreamConfig,
+    configured_config: _ApiStreamConfig,
+    discovered_config: _ApiStreamConfig,
 ) -> None:
-    configured_cursor_field = configured_config.get("cursorField")
+    configured_cursor_field = configured_config.cursor_field
     if configured_cursor_field:
-        output_config["cursorField"] = deepcopy(configured_cursor_field)
-    elif "cursorField" in discovered_config:
-        output_config["cursorField"] = deepcopy(discovered_config["cursorField"])
+        output_config.cursor_field = deepcopy(configured_cursor_field)
+    elif "cursor_field" in discovered_config.model_fields_set:
+        output_config.cursor_field = deepcopy(discovered_config.cursor_field)
     else:
-        output_config.pop("cursorField", None)
+        _unset_field(output_config, "cursor_field")
 
 
 def _merge_primary_key(
-    output_config: dict[str, Any],
-    configured_config: dict[str, Any],
-    discovered_config: dict[str, Any],
-    discovered_stream: dict[str, Any],
+    output_config: _ApiStreamConfig,
+    configured_config: _ApiStreamConfig,
+    discovered_config: _ApiStreamConfig,
+    discovered_stream: _ApiStream,
 ) -> None:
-    source_defined_primary_key = discovered_stream.get("sourceDefinedPrimaryKey")
-    configured_primary_key = configured_config.get("primaryKey")
+    source_defined_primary_key = discovered_stream.source_defined_primary_key
+    configured_primary_key = configured_config.primary_key
     if source_defined_primary_key:
-        output_config["primaryKey"] = deepcopy(source_defined_primary_key)
+        output_config.primary_key = deepcopy(source_defined_primary_key)
     elif configured_primary_key:
-        output_config["primaryKey"] = deepcopy(configured_primary_key)
-    elif "primaryKey" in discovered_config:
-        output_config["primaryKey"] = deepcopy(discovered_config["primaryKey"])
+        output_config.primary_key = deepcopy(configured_primary_key)
+    elif "primary_key" in discovered_config.model_fields_set:
+        output_config.primary_key = deepcopy(discovered_config.primary_key)
     else:
-        output_config.pop("primaryKey", None)
+        _unset_field(output_config, "primary_key")
 
 
 def _merge_hashed_fields(
-    output_config: dict[str, Any],
-    configured_config: dict[str, Any],
-    discovered_stream: dict[str, Any],
+    output_config: _ApiStreamConfig,
+    configured_config: _ApiStreamConfig,
+    discovered_stream: _ApiStream,
 ) -> None:
     discovered_fields = set(_top_level_fields(discovered_stream))
     hashed_fields = [
-        deepcopy(hashed_field)
-        for hashed_field in configured_config.get("hashedFields", [])
-        if (field_path := hashed_field.get("fieldPath")) and field_path[0] in discovered_fields
+        hashed_field.model_copy(deep=True)
+        for hashed_field in configured_config.hashed_fields or []
+        if hashed_field.field_path and hashed_field.field_path[0] in discovered_fields
     ]
     if hashed_fields:
-        output_config["hashedFields"] = hashed_fields
+        output_config.hashed_fields = hashed_fields
     else:
-        output_config.pop("hashedFields", None)
+        _unset_field(output_config, "hashed_fields")
 
 
 def _merge_selected_fields(
-    output_config: dict[str, Any],
-    configured_entry: dict[str, Any],
-    configured_config: dict[str, Any],
-    discovered_stream: dict[str, Any],
+    output_config: _ApiStreamConfig,
+    configured_entry: _ApiCatalogEntry,
+    configured_config: _ApiStreamConfig,
+    discovered_stream: _ApiStream,
 ) -> None:
-    if not output_config.get("fieldSelectionEnabled"):
-        output_config["selectedFields"] = []
+    if not output_config.field_selection_enabled:
+        output_config.selected_fields = []
         return
 
-    original_discovered_stream = configured_entry.get("stream", {})
-    originally_discovered_fields = set(_top_level_fields(original_discovered_stream))
+    originally_discovered_fields = set(_top_level_fields(configured_entry.stream))
     originally_selected_fields = {
-        field_path[0]
-        for selected_field in configured_config.get("selectedFields", [])
-        if (field_path := selected_field.get("fieldPath"))
+        selected_field.field_path[0]
+        for selected_field in configured_config.selected_fields or []
+        if selected_field.field_path
     }
     discovered_field_order = _top_level_fields(discovered_stream)
-    output_config["selectedFields"] = [
-        {"fieldPath": [field]}
+    output_config.selected_fields = [
+        _SelectedField(field_path=[field])
         for field in discovered_field_order
         if field in originally_selected_fields or field not in originally_discovered_fields
     ]
 
 
 def _merge_existing_config(
-    discovered_stream: dict[str, Any],
-    discovered_config: dict[str, Any],
-    configured_entry: dict[str, Any],
-) -> dict[str, Any]:
-    configured_config = configured_entry.get("config", {})
-    output_config = deepcopy(configured_config)
-    output_config.update(deepcopy(discovered_config))
+    discovered_stream: _ApiStream,
+    discovered_config: _ApiStreamConfig,
+    configured_entry: _ApiCatalogEntry,
+) -> _ApiStreamConfig:
+    configured_config = configured_entry.config
+    output_config = configured_config.model_copy(deep=True)
+    _copy_explicit_fields(discovered_config, output_config)
 
     _merge_sync_mode(
         output_config,
@@ -132,10 +202,10 @@ def _merge_existing_config(
         discovered_stream,
     )
     _merge_cursor_field(output_config, configured_config, discovered_config)
-    if "destinationSyncMode" in configured_config:
-        output_config["destinationSyncMode"] = deepcopy(configured_config["destinationSyncMode"])
+    if "destination_sync_mode" in configured_config.model_fields_set:
+        output_config.destination_sync_mode = deepcopy(configured_config.destination_sync_mode)
     else:
-        output_config.pop("destinationSyncMode", None)
+        _unset_field(output_config, "destination_sync_mode")
     _merge_primary_key(
         output_config,
         configured_config,
@@ -144,18 +214,18 @@ def _merge_existing_config(
     )
 
     for field in (
-        "aliasName",
+        "alias_name",
         "selected",
         "suggested",
-        "includeFiles",
-        "fieldSelectionEnabled",
+        "include_files",
+        "field_selection_enabled",
         "mappers",
-        "destinationObjectName",
+        "destination_object_name",
     ):
-        if field in configured_config:
-            output_config[field] = deepcopy(configured_config[field])
+        if field in configured_config.model_fields_set:
+            setattr(output_config, field, deepcopy(getattr(configured_config, field)))
         else:
-            output_config.pop(field, None)
+            _unset_field(output_config, field)
 
     _merge_hashed_fields(output_config, configured_config, discovered_stream)
     _merge_selected_fields(
@@ -168,23 +238,20 @@ def _merge_existing_config(
 
 
 def _merge_discovered_entry(
-    discovered_entry: dict[str, Any],
-    configured_entry: dict[str, Any] | None,
-) -> dict[str, Any]:
-    discovered_stream = discovered_entry.get("stream", {})
-    discovered_config = discovered_entry.get("config", {})
-    output_entry = deepcopy(discovered_entry)
-    output_entry["stream"] = deepcopy(discovered_stream)
+    discovered_entry: _ApiCatalogEntry,
+    configured_entry: _ApiCatalogEntry | None,
+) -> _ApiCatalogEntry:
+    output_entry = discovered_entry.model_copy(deep=True)
     if configured_entry is None:
-        output_config = deepcopy(discovered_config)
-        output_config["selected"] = False
+        output_config = discovered_entry.config.model_copy(deep=True)
+        output_config.selected = False
     else:
         output_config = _merge_existing_config(
-            discovered_stream,
-            discovered_config,
+            discovered_entry.stream,
+            discovered_entry.config,
             configured_entry,
         )
-    output_entry["config"] = output_config
+    output_entry.config = output_config
     return output_entry
 
 
@@ -193,27 +260,29 @@ def _merge_catalog_with_configuration(
     discovered_catalog: dict[str, Any],
 ) -> dict[str, Any]:
     """Return the new discovery with applicable settings from the configured catalog."""
+    configured = _ApiCatalog.model_validate(configured_catalog)
+    discovered = _ApiCatalog.model_validate(discovered_catalog)
     configured_by_descriptor = {
         _stream_descriptor(
-            entry.get("stream", {}).get("name"),
-            entry.get("stream", {}).get("namespace"),
+            entry.stream.name,
+            entry.stream.namespace,
         ): entry
-        for entry in configured_catalog.get("streams", [])
+        for entry in configured.streams
     }
-    merged_catalog = deepcopy(discovered_catalog)
-    merged_catalog["streams"] = [
+    merged_catalog = discovered.model_copy(deep=True)
+    merged_catalog.streams = [
         _merge_discovered_entry(
             discovered_entry,
             configured_by_descriptor.get(
                 _stream_descriptor(
-                    discovered_entry.get("stream", {}).get("name"),
-                    discovered_entry.get("stream", {}).get("namespace"),
+                    discovered_entry.stream.name,
+                    discovered_entry.stream.namespace,
                 )
             ),
         )
-        for discovered_entry in discovered_catalog.get("streams", [])
+        for discovered_entry in discovered.streams
     ]
-    return merged_catalog
+    return merged_catalog.model_dump(mode="json", by_alias=True, exclude_unset=True)
 
 
 def _preserve_api_only_catalog_fields(
@@ -221,31 +290,26 @@ def _preserve_api_only_catalog_fields(
     typed_catalog: dict[str, Any],
 ) -> dict[str, Any]:
     """Copy API-only data through the typed catalog update path."""
-    result = deepcopy(typed_catalog)
-    for key, value in raw_catalog.items():
-        result.setdefault(key, deepcopy(value))
+    raw = _ApiCatalog.model_validate(raw_catalog)
+    result = _ApiCatalog.model_validate(typed_catalog)
+    _copy_explicit_fields(raw, result, only_missing=True)
 
     raw_streams_by_descriptor = {
         _stream_descriptor(
-            entry.get("stream", {}).get("name"),
-            entry.get("stream", {}).get("namespace"),
+            entry.stream.name,
+            entry.stream.namespace,
         ): entry
-        for entry in raw_catalog.get("streams", [])
+        for entry in raw.streams
     }
-    for entry in result.get("streams", []):
-        stream = entry.get("stream", {})
+    for entry in result.streams:
         raw_entry = raw_streams_by_descriptor.get(
-            _stream_descriptor(stream.get("name"), stream.get("namespace"))
+            _stream_descriptor(entry.stream.name, entry.stream.namespace)
         )
         if raw_entry is None:
             continue
 
-        for key, value in raw_entry.items():
-            entry.setdefault(key, deepcopy(value))
-        for key, value in raw_entry.get("stream", {}).items():
-            stream.setdefault(key, deepcopy(value))
-        config = entry.get("config", {})
-        for key, value in raw_entry.get("config", {}).items():
-            config.setdefault(key, deepcopy(value))
+        _copy_explicit_fields(raw_entry, entry, only_missing=True)
+        _copy_explicit_fields(raw_entry.stream, entry.stream, only_missing=True)
+        _copy_explicit_fields(raw_entry.config, entry.config, only_missing=True)
 
-    return result
+    return result.model_dump(mode="json", by_alias=True, exclude_unset=True)

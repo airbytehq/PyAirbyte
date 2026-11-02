@@ -5,6 +5,9 @@ from __future__ import annotations
 
 from typing import Any
 
+import pytest
+from pydantic import ValidationError
+
 from airbyte.cloud._catalog_merge import _merge_catalog_with_configuration
 
 
@@ -242,3 +245,39 @@ def test_merge_round_trips_untouched_api_only_fields() -> None:
     assert merged["streams"][0]["stream"]["apiOnlyStreamField"] == {"keep": True}
     assert merged["streams"][0]["config"]["apiOnlyConfiguredField"] == {"keep": True}
     assert merged["streams"][0]["config"]["apiOnlyDiscoveredField"] == {"keep": True}
+
+
+def test_merge_round_trips_unchanged_unknown_fields_and_mappers() -> None:
+    catalog = _catalog(
+        _stream_entry(
+            "users",
+            config={
+                "syncMode": "full_refresh",
+                "destinationSyncMode": "append",
+                "selected": True,
+                "selectedFields": [],
+                "fieldSelectionEnabled": False,
+                "mappers": [
+                    {
+                        "type": "hashing",
+                        "config": {"field": "id"},
+                    }
+                ],
+                "apiOnlyConfigField": {"keep": True},
+            },
+            apiOnlyStreamField={"keep": True},
+        )
+    )
+
+    assert _merge_catalog_with_configuration(catalog, catalog) == catalog
+
+
+def test_merge_rejects_catalog_whose_streams_are_not_a_list() -> None:
+    malformed_catalog = {"streams": "not-a-list"}
+
+    with pytest.raises(ValidationError) as exc_info:
+        _merge_catalog_with_configuration(malformed_catalog, _catalog())
+
+    first_error = exc_info.value.errors()[0]
+    assert first_error["loc"] == ("streams",)
+    assert first_error["msg"] == "Input should be a valid list"
