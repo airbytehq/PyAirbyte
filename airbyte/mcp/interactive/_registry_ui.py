@@ -45,7 +45,7 @@ from airbyte.mcp.interactive._shared_models import (
     PublicConnectorSummary,
     SupportLevel,
 )
-from airbyte.mcp.registry import list_connectors as _list_connectors
+from airbyte.mcp.registry import list_connector_definitions as _list_connector_definitions
 from airbyte.registry import ConnectorMetadata, _get_registry_url, get_connector_metadata
 
 
@@ -83,7 +83,7 @@ def _json_dumps(value: JsonValue) -> str:
     idempotent=True,
     app=PrefabAppConfig(),
 )
-def show_connectors_list(
+def show_connector_definitions(
     support_level: Annotated[
         str,
         Field(
@@ -385,7 +385,7 @@ def _list_public_registry_connectors(
     search: str = "",
     limit: int | None = None,
 ) -> list[PublicConnectorSummary]:
-    connector_names = _list_connectors(
+    connector_names = _list_connector_definitions(
         keyword_filter=None,
         connector_type_filter=_connector_type_value(connector_type),
         install_types=None,

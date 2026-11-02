@@ -370,6 +370,91 @@ def test_get_user_id_from_bearer_token_rejects_invalid_tokens(
     ),
     [
         pytest.param(
+            api_util.get_connection_catalog,
+            {"connection_id": "connection-id"},
+            "/web_backend/connections/get",
+            {
+                "connectionId": "connection-id",
+                "withRefreshedCatalog": False,
+            },
+            {"catalogId": "saved-catalog-id"},
+            {"catalogId": "saved-catalog-id"},
+            id="connection-catalog",
+        ),
+        pytest.param(
+            api_util.run_source_discover_command,
+            {
+                "source_id": "source-id",
+                "discover_request_id": "request-id",
+            },
+            "/commands/run/discover",
+            {"id": "request-id", "actor_id": "source-id"},
+            {"id": "request-id"},
+            {"id": "request-id"},
+            id="run-source-discover",
+        ),
+        pytest.param(
+            api_util.get_command_status,
+            {"command_id": "request-id"},
+            "/commands/status",
+            {"id": "request-id"},
+            {"id": "request-id", "status": "pending"},
+            {"id": "request-id", "status": "pending"},
+            id="command-status",
+        ),
+        pytest.param(
+            api_util.get_discover_command_output,
+            {"command_id": "request-id"},
+            "/commands/output/discover",
+            {"id": "request-id"},
+            {"id": "request-id", "status": "succeeded"},
+            {"id": "request-id", "status": "succeeded"},
+            id="discover-command-output",
+        ),
+        pytest.param(
+            api_util.get_most_recent_source_catalog,
+            {"source_id": "source-id"},
+            "/sources/most_recent_source_actor_catalog",
+            {"sourceId": "source-id"},
+            {"catalog": {"streams": []}},
+            {"catalog": {"streams": []}},
+            id="most-recent-source-catalog",
+        ),
+        pytest.param(
+            api_util.get_catalog_diff,
+            {
+                "current_catalog_id": "old-catalog-id",
+                "new_catalog_id": "new-catalog-id",
+            },
+            "/catalogs/diff",
+            {
+                "current_catalog_id": "old-catalog-id",
+                "new_catalog_id": "new-catalog-id",
+                "persist_changes": False,
+            },
+            {"catalog_diff": {"transforms": []}, "schema_change": "no_change"},
+            {"catalog_diff": {"transforms": []}, "schema_change": "no_change"},
+            id="catalog-diff-no-connection",
+        ),
+        pytest.param(
+            api_util.get_catalog_diff,
+            {
+                "current_catalog_id": "old-catalog-id",
+                "new_catalog_id": "new-catalog-id",
+                "connection_id": "connection-id",
+            },
+            "/catalogs/diff",
+            {
+                "current_catalog_id": "old-catalog-id",
+                "new_catalog_id": "new-catalog-id",
+                "connection_id": "connection-id",
+                "persist_changes": False,
+            },
+            {"catalog_diff": {"transforms": []}, "schema_change": "no_change"},
+            {"catalog_diff": {"transforms": []}, "schema_change": "no_change"},
+            id="catalog-diff-with-connection",
+        ),
+        pytest.param(
             api_util.get_user_by_auth_id,
             {"auth_user_id": "auth-user-id"},
             "/users/get_by_auth_id",
@@ -1574,6 +1659,30 @@ def test_sdk_decodes_queued_job_status() -> None:
     assert CloudJobInfo.from_api_response(job).status is JobStatusEnum.QUEUED
 
 
+def test_cloud_job_info_preserves_duration_and_last_updated_at() -> None:
+    payload = {"data": [_raw_job_response(42, "succeeded")]}
+    payload["data"][0].update(
+        duration="PT1M9S",
+        lastUpdatedAt="2026-10-19T01:18:28Z",
+    )
+    job = utils.unmarshal_json(json.dumps(payload), models.JobsResponse).data[0]
+
+    job_info = CloudJobInfo.from_api_response(job)
+
+    assert job_info.duration == "PT1M9S"
+    assert job_info.last_updated_at == "2026-10-19T01:18:28Z"
+
+
+def test_cloud_job_info_defaults_missing_duration_and_last_updated_at_to_none() -> None:
+    payload = {"data": [_raw_job_response(42, "running")]}
+    job = utils.unmarshal_json(json.dumps(payload), models.JobsResponse).data[0]
+
+    job_info = CloudJobInfo.from_api_response(job)
+
+    assert job_info.duration is None
+    assert job_info.last_updated_at is None
+
+
 def test_get_job_logs_paginates_until_limit(monkeypatch: pytest.MonkeyPatch) -> None:
     """Verify job log pagination stops after collecting the requested limit."""
     captured_requests: list[api.ListJobsRequest] = []
@@ -2428,6 +2537,40 @@ def test_create_connection_400_guidance(
     assert format_user_facing_error(exc_info.value) == expected_text
 
 
+@pytest.mark.parametrize("field", ["streamName", "streamNamespace", "connectionIds"])
+@pytest.mark.parametrize("include_valid_stream", [False, True])
+def test_create_connection_conflict_skips_escaped_lone_surrogate(
+    monkeypatch: pytest.MonkeyPatch,
+    field: str,
+    include_valid_stream: bool,
+) -> None:
+    stream = {
+        "streamName": "users",
+        "streamNamespace": "analytics",
+        "connectionIds": ["users-connection"],
+    }
+    stream[field] = ["\ud800"] if field == "connectionIds" else "\ud800"
+    streams = [stream]
+    if include_valid_stream:
+        streams.append({"streamName": "orders", "connectionIds": ["orders-connection"]})
+    expected_guidance = (
+        "Another connection on this destination already writes to these tables: "
+        "`orders` (connection `orders-connection`). Set `table_prefix` (for example "
+        "`<source>_`) so this connection writes to different table names."
+        if include_valid_stream
+        else "Another connection on this destination may already write to the same tables. "
+        "Set `table_prefix` (for example `<source>_`) so this connection writes to "
+        "different table names."
+    )
+    test_create_connection_400_guidance(
+        monkeypatch,
+        "https://reference.airbyte.com/reference/errors"
+        "#error:connection-conflicting-destination-stream",
+        {"streams": streams},
+        expected_guidance,
+    )
+
+
 def test_create_connection_400_with_non_json_body_uses_fallback_message(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -2466,7 +2609,7 @@ def test_create_connection_400_with_non_json_body_uses_fallback_message(
             json.dumps({"title": "actor-not-ready"}),
             True,
             AirbyteConnectorNotReadyError,
-            "`check_cloud_connector`",
+            "`check_connector`",
             id="actor-not-ready-mcp",
         ),
         pytest.param(
@@ -2482,7 +2625,7 @@ def test_create_connection_400_with_non_json_body_uses_fallback_message(
             }),
             True,
             AirbyteConnectorNotReadyError,
-            "`check_cloud_connector`",
+            "`check_connector`",
             id="actor-not-ready-by-type",
         ),
         pytest.param(

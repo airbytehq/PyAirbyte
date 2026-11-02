@@ -12,18 +12,18 @@ _CONFIG_PARAMS = ("config", "config_secret_name", "manifest_path")
 _CONFIG_HELP_TEXT = local._CONFIG_HELP.strip()
 
 _TOOLS_WITH_CONFIG_HELP = (
-    "validate_connector_config",
-    "list_source_streams",
-    "get_source_stream_json_schema",
-    "read_source_stream_records",
-    "get_stream_previews",
-    "sync_source_to_cache",
+    "validate_local_connector_config",
+    "list_local_source_streams",
+    "get_local_source_stream_json_schema",
+    "read_local_source_stream_records",
+    "get_local_stream_previews",
+    "sync_local_source_to_cache",
 )
 _TOOLS_WITHOUT_CONFIG_HELP = (
-    "list_dotenv_secrets",
-    "list_cached_streams",
-    "describe_default_cache",
-    "run_sql_query",
+    "list_local_dotenv_secrets",
+    "list_local_cached_streams",
+    "describe_local_default_cache",
+    "run_local_sql_query",
 )
 
 

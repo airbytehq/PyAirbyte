@@ -55,9 +55,11 @@ for hit in search_result.hits:
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from http import HTTPStatus
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, ClassVar, Literal, Protocol
+from uuid import uuid4
 
 import jsonschema
 import requests
@@ -88,10 +90,14 @@ from airbyte._direct_connectors.models import (
 )
 from airbyte._util import api_util, text_util
 from airbyte._util.api_util import get_web_url_root
+from airbyte.cloud.connector_builder import CloudConnectorBuilderProject
+from airbyte.cloud.connector_builder._util import unwrap_builder_manifest
 from airbyte.cloud.models import (
     CheckResult,
     CloudCustomSourceDefinitionInfo,
     CloudDestinationInfo,
+    CloudSourceCatalogDiffStreamSummary,
+    CloudSourceCatalogDiscoverResult,
     CloudSourceInfo,
     ConnectorFeature,
     ConnectorType,
@@ -127,6 +133,92 @@ _GENERIC_CONFLICT_MESSAGES = frozenset(
     }
 )
 """409 messages that carry no Cloud detail: the platform default and PyAirbyte's fallback."""
+
+
+def _get_catalog_discover_result(
+    workspace: CloudWorkspace,
+    discover_request_id: str,
+) -> CloudSourceCatalogDiscoverResult:
+    """Get a source-discover result using a workspace's Config API credentials."""
+    if not isinstance(discover_request_id, str) or not discover_request_id.strip():
+        raise exc.AirbyteLibInputError(
+            message="`discover_request_id` must be a non-empty string.",
+            context={"discover_request_id": discover_request_id},
+        )
+
+    command_status = api_util.get_command_status(
+        discover_request_id,
+        api_root=workspace.api_root,
+        config_api_root=workspace.config_api_root,
+        client_id=workspace.client_id,
+        client_secret=workspace.client_secret,
+        bearer_token=workspace.bearer_token,
+    )
+    request_status = command_status["status"]
+    if request_status != "completed":
+        return CloudSourceCatalogDiscoverResult(
+            discover_request_id=discover_request_id,
+            request_status=request_status,
+        )
+
+    output = api_util.get_discover_command_output(
+        discover_request_id,
+        api_root=workspace.api_root,
+        config_api_root=workspace.config_api_root,
+        client_id=workspace.client_id,
+        client_secret=workspace.client_secret,
+        bearer_token=workspace.bearer_token,
+    )
+    failure = output.get("failureReason")
+    failure_reason = failure.get("externalMessage") if isinstance(failure, dict) else None
+    catalog = output.get("catalog")
+    stream_count = len(catalog["streams"]) if catalog is not None else None
+    return CloudSourceCatalogDiscoverResult(
+        discover_request_id=discover_request_id,
+        request_status=request_status,
+        outcome=output["status"],
+        source_catalog_id=output.get("catalogId"),
+        stream_count=stream_count,
+        failure_reason=failure_reason,
+    )
+
+
+def _build_catalog_diff_result(
+    source_catalog_id: str,
+    response: dict[str, Any],
+) -> CloudSourceCatalogDiscoverResult:
+    """Build a bounded summary of the Config API catalog-diff response."""
+    transforms = response["catalog_diff"]["transforms"]
+    summaries = []
+    for transform in transforms:
+        descriptor = transform["streamDescriptor"]
+        update_stream = transform.get("updateStream") or {}
+        field_transforms = update_stream.get("fieldTransforms", [])
+        attribute_transforms = update_stream.get("streamAttributeTransforms", [])
+        breaking_flags = [
+            change["breaking"]
+            for change in [*field_transforms, *attribute_transforms]
+            if "breaking" in change
+        ]
+        summaries.append(
+            CloudSourceCatalogDiffStreamSummary(
+                stream_name=descriptor["name"],
+                stream_namespace=descriptor.get("namespace"),
+                transform_type=transform["transformType"],
+                breaking_flags=breaking_flags,
+                field_additions_count=sum(
+                    change["transformType"] == "add_field" for change in field_transforms
+                ),
+                field_removals_count=sum(
+                    change["transformType"] == "remove_field" for change in field_transforms
+                ),
+            )
+        )
+    return CloudSourceCatalogDiscoverResult(
+        source_catalog_id=source_catalog_id,
+        catalog_diff_summary=summaries,
+        schema_change=response["schema_change"],
+    )
 
 
 class _ConnectorDefinitionLike(Protocol):
@@ -919,19 +1011,16 @@ class CloudConnector:  # noqa: PLR0904  # Too many public methods
     def read_agent_skill_docs(self, *, section: str | None = None) -> DirectAccessGuidance:
         """Read this connector's skill docs from the Agents API without enrichment.
 
-        Sources are addressed by the `docs_skill_id` reported by Context Layer
-        `inspect`; SQL passthrough destinations by their conventional
-        `connector-destination:` skill ID. `section` is passed through unchanged
-        and Agents API errors (including not-enabled 403/404s) propagate. Other
-        destinations do not support direct access docs.
+        Sources are addressed by their `connector-source:` skill ID; SQL passthrough
+        destinations by their conventional `connector-destination:` skill ID.
+        `section` is passed through unchanged. Not-enabled 403/404s raise
+        `AirbyteExternalAccessNotEnabledError` with an `enablement_url`; when the
+        Context Layer API is unavailable, that error has no URL. Other errors
+        propagate. Other destinations do not support direct access docs.
         """
         if self.connector_type == ConnectorType.SOURCE:
-            skill_id: str | None = self._direct_access_guidance_id()
-            if skill_id is None:
-                raise exc.AirbyteExternalAccessNotEnabledError(
-                    connector_name=self.name,
-                    connector_id=self.connector_id,
-                )
+            self._require_context_layer_api()
+            skill_id = connector_docs.source_skill_id(self.connector_id)
         elif self.definition_id in _SQL_PASSTHROUGH_DESTINATION_DIALECTS:
             skill_id = connector_docs.destination_skill_id(self.connector_id)
         else:
@@ -946,14 +1035,22 @@ class CloudConnector:  # noqa: PLR0904  # Too many public methods
                     "definition_id": self.definition_id,
                 },
             )
-        return DirectAccessGuidance.model_validate(
-            agents_api_util.read_cloud_skill_docs(
-                workspace_id=self.workspace.workspace_id,
-                skill_id=skill_id,
-                credentials=self.workspace._credentials,  # noqa: SLF001
-                section=section,
+        try:
+            return DirectAccessGuidance.model_validate(
+                agents_api_util.read_cloud_skill_docs(
+                    workspace_id=self.workspace.workspace_id,
+                    skill_id=skill_id,
+                    credentials=self.workspace._credentials,  # noqa: SLF001
+                    section=section,
+                )
             )
-        )
+        except exc.AirbyteCloudError as error:
+            self._raise_if_feature_not_enabled(
+                error,
+                ConnectorFeature.DIRECT_ACCESS,
+                enablement_url=self._direct_access_enablement_url,
+            )
+            raise
 
     def get_direct_access_guidance(self, *, section: str | None = None) -> DirectAccessGuidance:
         """Read this connector's direct-access docs, optionally scoped to a section.
@@ -1095,6 +1192,68 @@ class CloudSource(CloudConnector):
                 client_secret=self.workspace.client_secret,
                 bearer_token=self.workspace.bearer_token,
             )
+        )
+
+    def _validate_source_id(self) -> None:
+        if not self.source_id.strip():
+            raise exc.AirbyteLibInputError(
+                message="`source_id` must be a non-empty string.",
+                context={"source_id": self.source_id},
+            )
+
+    def start_catalog_discover(self) -> CloudSourceCatalogDiscoverResult:
+        """Start an asynchronous source catalog discover command."""
+        self._validate_source_id()
+        discover_request_id = str(uuid4())
+        api_util.run_source_discover_command(
+            source_id=self.source_id,
+            discover_request_id=discover_request_id,
+            api_root=self.workspace.api_root,
+            config_api_root=self.workspace.config_api_root,
+            client_id=self.workspace.client_id,
+            client_secret=self.workspace.client_secret,
+            bearer_token=self.workspace.bearer_token,
+        )
+        return CloudSourceCatalogDiscoverResult(
+            source_id=self.source_id,
+            discover_request_id=discover_request_id,
+            request_status="pending",
+        )
+
+    def get_catalog_discover_result(
+        self,
+        discover_request_id: str,
+    ) -> CloudSourceCatalogDiscoverResult:
+        """Get the status and completed output of a source catalog discover."""
+        result = _get_catalog_discover_result(
+            workspace=self.workspace,
+            discover_request_id=discover_request_id,
+        )
+        return result.model_copy(update={"source_id": self.source_id})
+
+    def get_latest_saved_catalog(self) -> CloudSourceCatalogDiscoverResult:
+        """Get the timestamp and stream count of the latest saved catalog."""
+        self._validate_source_id()
+        response = api_util.get_most_recent_source_catalog(
+            source_id=self.source_id,
+            api_root=self.workspace.api_root,
+            config_api_root=self.workspace.config_api_root,
+            client_id=self.workspace.client_id,
+            client_secret=self.workspace.client_secret,
+            bearer_token=self.workspace.bearer_token,
+        )
+        catalog = response.get("catalog")
+        streams = catalog.get("streams", []) if isinstance(catalog, dict) else []
+        if not streams:
+            return CloudSourceCatalogDiscoverResult(source_id=self.source_id)
+
+        updated_at = response.get("updatedAt")
+        return CloudSourceCatalogDiscoverResult(
+            source_id=self.source_id,
+            stream_count=len(streams),
+            updated_at=(
+                datetime.fromtimestamp(updated_at, tz=UTC) if updated_at is not None else None
+            ),
         )
 
     def rename(self, name: str) -> CloudSource:
@@ -1273,25 +1432,6 @@ class CloudDestination(CloudConnector):
         return result
 
 
-_MANIFEST_KEYS = frozenset({"streams", "definitions", "check"})
-
-
-def _unwrap_builder_manifest(value: object) -> dict[str, Any] | None:
-    """Return the connector manifest from a builder manifest payload.
-
-    Some builder projects store their draft as a `DeclarativeSourceManifest`
-    envelope (`{"manifest": {...}, "spec": ..., "version": ...}`) rather than
-    the bare manifest; unwrap that envelope so the result matches the shape of
-    `manifest`.
-    """
-    if not isinstance(value, dict):
-        return None
-    nested = value.get("manifest")
-    if isinstance(nested, dict) and not any(key in value for key in _MANIFEST_KEYS):
-        return nested
-    return value
-
-
 class CustomCloudSourceDefinition:  # noqa: PLR0904
     """A custom source connector definition in Airbyte Cloud.
 
@@ -1466,6 +1606,22 @@ class CustomCloudSourceDefinition:  # noqa: PLR0904
         return self._connector_builder_project_id
 
     @property
+    def _connector_builder_project(self) -> CloudConnectorBuilderProject | None:
+        """The Connector Builder project behind this definition. YAML connectors only."""
+        if self.definition_type != "yaml":
+            return None
+
+        project_id = self.connector_builder_project_id
+        if not project_id:
+            return None
+
+        return CloudConnectorBuilderProject(
+            workspace=self.workspace,
+            builder_project_id=project_id,
+            owner_workspace_id=self._builder_project_workspace_id,
+        )
+
+    @property
     def connector_builder_project_url(self) -> str | None:
         """Get the connector builder project URL. Only present for YAML connectors."""
         if self.definition_type != "yaml":
@@ -1577,7 +1733,7 @@ class CustomCloudSourceDefinition:  # noqa: PLR0904
             return None
 
         declarative_manifest = project_data.get("declarativeManifest", {})
-        return _unwrap_builder_manifest(declarative_manifest.get("manifest"))
+        return unwrap_builder_manifest(declarative_manifest.get("manifest"))
 
     @property
     def definition_url(self) -> str:

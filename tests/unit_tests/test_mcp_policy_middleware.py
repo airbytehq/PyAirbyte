@@ -326,7 +326,7 @@ def test_local_tools_bypass_cloud_policy_guards(
         )
         return await PolicyGuardMiddleware().on_call_tool(context, call_next)
 
-    _MW_TOOL_MODULES["destination_smoke_test"] = "local"
+    _MW_TOOL_MODULES["run_local_destination_smoke_test"] = "local"
     _MW_TOOL_MODULES["sync_connector"] = "local"
     # No `ToolPolicy` registration: the tools exercise the real default
     # (non-read-only -> pipeline_change=True).
@@ -336,7 +336,7 @@ def test_local_tools_bypass_cloud_policy_guards(
     assert (
         asyncio.run(
             call(
-                "destination_smoke_test",
+                "run_local_destination_smoke_test",
                 SimpleNamespace(destructive_hint=True),
             )
         )

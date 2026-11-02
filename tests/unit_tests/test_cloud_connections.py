@@ -440,7 +440,7 @@ def test_get_sync_result_validates_job_id(
         assert exc_info.value.resource_type == "sync job"
         assert exc_info.value.resource_name_or_id == "42"
         assert exc_info.value.guidance == (
-            "Use `list_cloud_sync_jobs` to find valid job IDs for this connection."
+            "Use `list_connection_sync_jobs` to find valid job IDs for this connection."
         )
         assert exc_info.value.context == {
             "connection_id": "connection-id",
@@ -461,7 +461,7 @@ def test_get_sync_result_validates_job_id(
         assert exc_info.value.resource_type == "sync job"
         assert exc_info.value.resource_name_or_id == "42"
         assert exc_info.value.guidance == (
-            "Use `list_cloud_sync_jobs` to find valid job IDs for this connection."
+            "Use `list_connection_sync_jobs` to find valid job IDs for this connection."
         )
         assert exc_info.value.context == {
             "connection_id": "connection-id",
@@ -879,7 +879,7 @@ def test_run_sync_handles_try_again_later_conflicts(
             "job_id": 42,
             "job_url": "https://cloud.airbyte.com/jobs/42",
         }
-        assert "`get_cloud_sync_status`" in exc_info.value.guidance
+        assert "`get_connection_sync_status`" in exc_info.value.guidance
         get_logs.assert_called_once_with(limit=1, job_type=JobTypeEnum.SYNC)
         assert exc_info.value.__cause__ is sync_error
     elif scenario in {"no-jobs", "completed-job"}:

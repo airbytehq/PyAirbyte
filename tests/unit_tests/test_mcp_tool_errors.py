@@ -23,6 +23,7 @@ from airbyte.exceptions import (
     AirbyteMissingResourceError,
     AirbyteLibError,
     AirbyteLibInputError,
+    AirbyteUnsafeStreamConfigChangeError,
 )
 from airbyte.mcp._error_handling import (
     MCP_TOOL_USER_FACING_ERRORS,
@@ -68,6 +69,13 @@ def test_unexpected_errors_keep_fastmcp_default_handling() -> None:
         pytest.param(
             AirbyteLibInputError(message="bad", guidance="fix it"),
             id="input-error",
+        ),
+        pytest.param(
+            AirbyteUnsafeStreamConfigChangeError(
+                message="unsafe",
+                guidance="review state",
+            ),
+            id="unsafe-stream-config",
         ),
         pytest.param(
             AirbyteConnectorInUseError(
@@ -532,7 +540,7 @@ def test_cloud_chain_uses_exact_message_for_agent_and_span(
             "Connection 'connection-id' is disabled (status 'inactive'), so a sync cannot "
             "be started. Re-enable the connection first (e.g. "
             "`connection.set_enabled(enabled=True)`, or the "
-            "`update_cloud_connection` MCP tool with `enabled=True`), then retry. "
+            "`update_connection` MCP tool with `enabled=True`), then retry. "
             "Airbyte Cloud response: State conflict",
             id="disabled-connection",
         ),
@@ -568,7 +576,7 @@ def test_local_guidance_is_preserved_with_cloud_error(
         guidance=(
             "Re-enable the connection first (e.g. "
             "`connection.set_enabled(enabled=True)`, or the "
-            "`update_cloud_connection` MCP tool with `enabled=True`), then retry."
+            "`update_connection` MCP tool with `enabled=True`), then retry."
             if "disabled" in local_message
             else "Local advice."
         ),
@@ -589,7 +597,7 @@ def test_active_sync_error_is_a_user_facing_mcp_error() -> None:
     message = (
         f"A sync is already running for connection '{connection_id}' (job {job_id})."
     )
-    guidance = "Monitor it with `get_cloud_sync_status`."
+    guidance = "Monitor it with `get_connection_sync_status`."
     body = json.dumps({
         "type": "https://reference.airbyte.com/reference/errors#try-again-later",
         "title": "try-again-later",

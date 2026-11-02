@@ -34,7 +34,13 @@ from airbyte._direct_connectors.models import (
     ExternalSearchType,
 )
 from airbyte._util import api_util
+from airbyte.cloud._connection_settings import (
+    _set_connection_schedule,
+    _validate_update_connection_args,
+)
 from airbyte.cloud.client import _MAX_WORKSPACES_TO_VALIDATE, CloudClient
+from airbyte.cloud.connections import CloudConnection
+from airbyte.cloud.connector_builder import CloudConnectorBuilderProject
 from airbyte.cloud.connectors import (
     CheckResult,
     CloudConnector,
@@ -47,12 +53,15 @@ from airbyte.cloud.models import (
     CloudDefaultContextInfo,
     CloudDefaultWorkspaceUpdateInfo,
     CloudOrganizationInfo,
+    CloudSourceCatalogDiscoverResult,
     ConnectionSchedule,
     ConnectionStatus,
     ConnectorFeature,
     ConnectorType,
     JobTypeEnum,
     OrganizationFeature,
+    StreamConfigOverride,
+    StreamConfigUpdateResult,
     WorkspacePrivilegeScope,
 )
 from airbyte.cloud.workspaces import CloudWorkspace
@@ -74,8 +83,10 @@ from airbyte.exceptions import (
     AirbyteExternalAccessNotEnabledError,
     AirbyteLibError,
     AirbyteLibInputError,
+    AirbyteLocalDemoModeError,
     AirbyteMissingResourceError,
     AirbyteMissingWorkspaceContextError,
+    AirbyteUnsafeStreamConfigChangeError,
 )
 from airbyte.mcp._arg_resolvers import (
     resolve_api_args,
@@ -93,9 +104,13 @@ from airbyte.mcp._guards import is_trusted_execution_enabled
 from airbyte.mcp._scope import record_default_workspace, record_resolved_organization
 from airbyte.mcp._tool_utils import (
     AIRBYTE_CLOUD_WORKSPACE_ID_IS_SET,
+    _insiders_mode,
+    airbyte_readonly_mode_enabled,
     check_guid_created_in_session,
     delete_guard_disabled,
+    destructive_tools_allowed,
     mcp_tool,
+    pipeline_changes_allowed,
     register_guid_created_in_session,
 )
 from airbyte.mcp._trace_attributes import agent_action_attributes
@@ -125,18 +140,34 @@ MANIFEST_YAML_SOURCE_HINT = (
 )
 
 
+TESTING_VALUES_SECRET_HINT = (
+    "`testing_values` supports inline secret refs via `secret_reference::ENV_VAR_NAME`."
+)
+
+
 def _manifest_yaml_source_hint() -> str | None:
+    """Return a trusted-execution hint for custom connector manifests."""
     return MANIFEST_YAML_SOURCE_HINT if is_trusted_execution_enabled() else None
+
+
+def _testing_values_secret_hint() -> str | None:
+    return TESTING_VALUES_SECRET_HINT if is_trusted_execution_enabled() else None
+
+
+def _manifest_and_testing_values_hint() -> str | None:
+    if not is_trusted_execution_enabled():
+        return None
+    return f"{MANIFEST_YAML_SOURCE_HINT} {TESTING_VALUES_SECRET_HINT}"
 
 
 SKILL_DOCS_SECTION_HINT = """\
 Skill doc sections for direct API queries and actions are named with the pattern
 `actions.<entity_type>.<action>`, matching the `entity_type` and `action` arguments of the
-`execute_external_api_query` tool. Call `get_agent_skill_docs` with the deployed `connector_id`
-(or a `docs_skill_id`) and no `section` to get the overview and list of available sections, then
-retrieve the relevant section(s) before calling an action. E.g. for GitHub `entity_type='issues'`,
-`action='list'`, the `'actions.issues.list'` section will teach that its expected
-`api_args` keys are `owner`, `repo`, `states`, etc.\
+`execute_external_api_query` tool. Call `get_external_access_skill_docs` with the deployed
+`connector_id` (or a `docs_skill_id`) and no `section` to get the overview and list of
+available sections, then retrieve the relevant section(s) before calling an action. E.g. for
+GitHub `entity_type='issues'`, `action='list'`, the `'actions.issues.list'` section will teach
+that its expected `api_args` keys are `owner`, `repo`, `states`, etc.\
 """
 CONNECTOR_CHECK_FAILURE_FALLBACK = "Connector check failed without a failure message."
 DEFER_CREDENTIALS_TIP_TEXT = (
@@ -146,7 +177,7 @@ DEFER_CREDENTIALS_TIP_TEXT = (
     "authentication methods, include the method's selector field in `config`. The result "
     "includes a settings link for the person to complete any missing fields and test the draft. "
     "After they report a successful test and save, call "
-    "`check_cloud_connector` with the `connector_id` (optionally `connector_type` and "
+    "`check_connector` with the `connector_id` (optionally `connector_type` and "
     "`workspace_id`)."
 )
 DEFERRED_SETUP_GUIDANCE = (
@@ -154,7 +185,7 @@ DEFERRED_SETUP_GUIDANCE = (
     "missing settings, then test and save. Until then the connector is a draft: you can "
     "describe or delete it, but creating a connection, discovering streams, or running a "
     "sync fails with `409 actor-not-ready`. Don't attempt or retry those until the user "
-    "confirms. Then call `check_cloud_connector` with `connector_id` (optionally "
+    "confirms. Then call `check_connector` with `connector_id` (optionally "
     "`connector_type` and `workspace_id`); a successful check makes the connector ready "
     "to use."
 )
@@ -338,7 +369,7 @@ class CloudOrganizationResult(BaseModel):
     email: str | None = None
     """Email associated with the organization, when available.
 
-    Only returned by `describe_cloud_organization`; `list_cloud_organizations`
+    Only returned by `describe_organization`; `list_organizations`
     reports `email_domain` instead.
     """
     email_domain: str | None = None
@@ -518,6 +549,11 @@ class SyncJobResult(BaseModel):
     """Number of records synced in this job."""
     start_time: str
     """ISO 8601 timestamp of when the job started."""
+    duration: str | None = None
+    """ISO 8601 duration of the job (e.g. `PT1M9S` is 1 minute 9 seconds), or null if Cloud has
+    not reported one (e.g. the job is still running)."""
+    last_updated_at: str | None = None
+    """ISO 8601 timestamp of the job's last update. For a finished job, this is when it ended."""
     job_url: str
     """URL to view the job in Airbyte Cloud."""
 
@@ -545,7 +581,7 @@ class DeferredDeployResult(BaseModel):
     name: str
     """The connector name in Airbyte Cloud."""
     workspace_id: str
-    """The workspace the connector was created in; pass it to `check_cloud_connector`."""
+    """The workspace the connector was created in; pass it to `check_connector`."""
     settings_url: str
     """Cloud settings page where a person completes the credentials."""
     guidance: str = DEFERRED_SETUP_GUIDANCE
@@ -613,7 +649,7 @@ def _get_cloud_client(
 
 
 @mcp_tool()
-def deploy_connector_to_cloud(  # noqa: PLR0913  # Mirrors the API surface.
+def deploy_connector(  # noqa: PLR0913  # Mirrors the API surface.
     ctx: Context,
     name: Annotated[
         str,
@@ -868,7 +904,7 @@ def _get_suggested_streams_for_source(
 
 
 @mcp_tool()
-def create_connection_on_cloud(
+def create_connection(
     ctx: Context,
     connection_name: Annotated[
         str,
@@ -919,7 +955,7 @@ def create_connection_on_cloud(
     """Create a connection between a deployed source and destination on Airbyte Cloud.
 
     New connections use a manual schedule by default. Automatic syncs require a later
-    schedule update with `update_cloud_connection`.
+    schedule update with `update_connection`.
 
     When `selected_streams` is not provided, the connection selects the source
     connector's suggested streams from the connector registry. If the connector has
@@ -975,9 +1011,10 @@ def create_connection_on_cloud(
 
 
 @mcp_tool(
+    destructive=True,  # May overwrite destination data (e.g. full refresh | overwrite)
     pipeline_change=False,
 )
-def run_cloud_sync(
+def run_connection_sync(
     ctx: Context,
     connection_id: Annotated[
         str,
@@ -1013,11 +1050,12 @@ def run_cloud_sync(
 ) -> str:
     """Run a sync job on Airbyte Cloud.
 
-    A disabled connection returns 409; re-enable it with `update_cloud_connection`
+    A disabled connection returns 409; re-enable it with `update_connection`
     (`enabled=True`) first. If a sync is already running, the error includes its job ID:
-    monitor it with `get_cloud_sync_status` instead of retrying, or call `cancel_cloud_sync`
-    first if a restart is really wanted. After a `wait=True` timeout, the sync keeps running;
-    check `get_cloud_sync_status` rather than starting another sync.
+    monitor it with `get_connection_sync_status` instead of retrying, or call
+    `cancel_connection_sync` first if a restart is really wanted. After a `wait=True`
+    timeout, the sync keeps running;
+    check `get_connection_sync_status` rather than starting another sync.
     """
     workspace: CloudWorkspace = _get_cloud_workspace(ctx, workspace_id)
     connection = workspace.get_connection(connection_id=connection_id)
@@ -1033,10 +1071,16 @@ def run_cloud_sync(
     return f"Sync started. Job ID is '{sync_result.job_id}' and job URL is: {sync_result.job_url}"
 
 
-@mcp_tool()
-def deploy_noop_destination_to_cloud(
+@mcp_tool(
+    title="Deploy no-op destination",  # Spell out 'no-op' in tool title
+)
+def deploy_noop_destination(
     ctx: Context,
-    name: Annotated[str, TraceArg.FINGERPRINT] = "No-op Destination",
+    destination_name: Annotated[
+        str,
+        Field(description="The name to use when deploying the No-op destination."),
+        TraceArg.FINGERPRINT,
+    ] = "No-op Destination",
     *,
     workspace_id: Annotated[
         str | None,
@@ -1046,13 +1090,13 @@ def deploy_noop_destination_to_cloud(
         ),
         TraceArg.OMIT,
     ],
-    unique: bool = True,
+    unique: Annotated[bool, Field(description="Whether to require a unique name.")] = True,
 ) -> str:
     """Deploy the No-op destination to Airbyte Cloud for testing purposes."""
     destination = get_noop_destination()
     workspace: CloudWorkspace = _get_cloud_workspace(ctx, workspace_id)
     deployed_destination = workspace.deploy_destination(
-        name=name,
+        name=destination_name,
         destination=destination,
         unique=unique,
     )
@@ -1068,7 +1112,7 @@ def deploy_noop_destination_to_cloud(
     read_only=True,
     idempotent=True,
 )
-def get_cloud_sync_status(
+def get_connection_sync_status(
     ctx: Context,
     connection_id: Annotated[
         str,
@@ -1081,7 +1125,7 @@ def get_cloud_sync_status(
         Field(
             description=(
                 "Optional job ID; it must belong to `connection_id`. Use "
-                "`list_cloud_sync_jobs` to find job IDs for this connection."
+                "`list_connection_sync_jobs` to find job IDs for this connection."
             ),
             default=None,
         ),
@@ -1106,7 +1150,7 @@ def get_cloud_sync_status(
     """Get the status of a sync job from Airbyte Cloud.
 
     `connection_id` is required, and any supplied `job_id` must belong to that connection. Use
-    `list_cloud_sync_jobs` to find job IDs for the connection.
+    `list_connection_sync_jobs` to find job IDs for the connection.
     """
     workspace: CloudWorkspace = _get_cloud_workspace(ctx, workspace_id)
     connection = workspace.get_connection(connection_id=connection_id)
@@ -1121,6 +1165,8 @@ def get_cloud_sync_status(
         "bytes_synced": sync_result.bytes_synced,
         "records_synced": sync_result.records_synced,
         "start_time": sync_result.start_time.isoformat(),
+        "duration": sync_result.duration,
+        "last_updated_at": sync_result.last_updated_at,
         "job_url": sync_result.job_url,
         "attempts": [],
     }
@@ -1146,7 +1192,7 @@ def get_cloud_sync_status(
     read_only=True,
     idempotent=True,
 )
-def list_cloud_sync_jobs(
+def list_connection_sync_jobs(
     ctx: Context,
     connection_id: Annotated[
         str,
@@ -1223,6 +1269,8 @@ def list_cloud_sync_jobs(
             bytes_synced=sync_result.bytes_synced,
             records_synced=sync_result.records_synced,
             start_time=sync_result.start_time.isoformat(),
+            duration=sync_result.duration,
+            last_updated_at=sync_result.last_updated_at,
             job_url=sync_result.job_url,
         )
         for sync_result in sync_results
@@ -1239,7 +1287,7 @@ def list_cloud_sync_jobs(
     destructive=True,
     pipeline_change=False,
 )
-def cancel_cloud_sync(
+def cancel_connection_sync(
     ctx: Context,
     connection_id: Annotated[
         str,
@@ -1309,7 +1357,7 @@ class CloudConnectorResult(BaseModel):
     read_only=True,
     idempotent=True,
 )
-def list_cloud_connectors(
+def list_connectors(
     ctx: Context,
     *,
     workspace_id: Annotated[
@@ -1353,7 +1401,8 @@ def list_cloud_connectors(
 ) -> list[CloudConnectorResult]:
     """List deployed source and destination connectors in the Airbyte Cloud workspace.
 
-    Use `list_cloud_connections` to find the pipelines between these connectors, and
+    Use `list_connector_definitions` for available connector types in the Airbyte registry.
+    Use `list_connections` to find the pipelines between these connectors, and
     `feature_filter` to find connectors with external-access features.
     """
     if limit is not None and limit <= 0:
@@ -1435,7 +1484,7 @@ def list_cloud_connectors(
 class CloudConnectorDetailsResult(BaseModel):
     """A description of a deployed Cloud connector.
 
-    As returned by the `describe_cloud_connector` MCP tool.
+    As returned by the `describe_connector` MCP tool.
     """
 
     model_config = ConfigDict(extra="allow")
@@ -1491,7 +1540,7 @@ def _describe_cloud_connector(  # noqa: PLR0912  # Too many branches
     with_direct_access_guidance: bool,
     with_data_replication_docs: bool,
 ) -> CloudConnectorDetailsResult:
-    """Assemble the `describe_cloud_connector` MCP tool's result for a deployed connector."""
+    """Assemble the `describe_connector` MCP tool's result for a deployed connector."""
     connector_type = connector.connector_type
     warnings: list[str] = []
     try:
@@ -1570,7 +1619,7 @@ def _describe_cloud_connector(  # noqa: PLR0912  # Too many branches
     read_only=True,
     idempotent=True,
 )
-def describe_cloud_connector(
+def describe_connector(
     ctx: Context,
     connector_id: Annotated[
         str,
@@ -1609,7 +1658,11 @@ def describe_cloud_connector(
     with_replication_details: Annotated[
         bool,
         Field(
-            description="Include the connections that read from or write to this " "connector.",
+            description=(
+                "Include connections that read from or write to this connector, "
+                "including expected destination database, loading schema or namespace "
+                "format, and table prefix. These are advisory loading hints, not inventory."
+            ),
             default=False,
         ),
     ],
@@ -1652,14 +1705,24 @@ def _direct_access_disabled_result(
     label = error.connector_name or f"{connector.connector_type} {connector.connector_id}"
     return ExternalApiExecuteResult(
         status="error",
-        errors=[
-            f"Show the user this message as-is: Direct access is currently disabled for "
-            f"{label}. [Click here]({error.enablement_url}) to enable it."
-        ],
+        errors=[_direct_access_disabled_message(error, label=label)],
+    )
+
+
+def _direct_access_disabled_message(
+    error: AirbyteExternalAccessNotEnabledError,
+    *,
+    label: str,
+) -> str:
+    """Return the user-facing message for disabled direct access."""
+    return (
+        f"Show the user this message as-is: Direct access is currently disabled for "
+        f"{redact_agent_text(label)}. [Click here]({error.enablement_url}) to enable it."
     )
 
 
 @mcp_tool(
+    title="Execute external API query",  # Use capital 'API' in tool title
     read_only=True,
     idempotent=True,
     open_world=True,
@@ -1679,7 +1742,7 @@ def execute_external_api_query(  # noqa: PLR0913  # Explicit args mirror the con
         Field(
             description=(
                 "The type of entity to query, for example 'issues'. Call "
-                "`get_agent_skill_docs` for supported entity types."
+                "`get_external_access_skill_docs` for supported entity types."
             ),
         ),
         TraceArg.VALUE,
@@ -1766,7 +1829,12 @@ def execute_external_api_query(  # noqa: PLR0913  # Explicit args mirror the con
 ) -> ExternalApiExecuteResult:
     """Read data from an external system through a deployed Cloud connector's direct API.
 
-    `describe_cloud_connector` with `with_direct_access_guidance=True` also returns the
+    Useful, for example, for quick investigations with live data: checking the most
+    recent records in the source when synced data looks missing or stale, confirming a
+    field is available before relying on it in a pipeline, or answering a one-off
+    question without waiting for a sync.
+
+    `describe_connector` with `with_direct_access_guidance=True` also returns the
     connector's action docs.
     """
     connector = _get_cloud_workspace(ctx, workspace_id).get_connector(connector_id)
@@ -1804,7 +1872,7 @@ def _execute_external_api_action(  # noqa: PLR0913  # Explicit args mirror the c
         Field(
             description=(
                 "The type of entity to act on, for example 'issues'. Call "
-                "`get_agent_skill_docs` for supported entity types."
+                "`get_external_access_skill_docs` for supported entity types."
             ),
         ),
     ],
@@ -1869,8 +1937,8 @@ def _execute_external_api_action(  # noqa: PLR0913  # Explicit args mirror the c
 
     Creates, updates, or deletes data in the external system.
 
-    Before calling, read the connector's action docs with `get_agent_skill_docs`
-    (or `describe_cloud_connector` with `with_direct_access_guidance=True`) to
+    Before calling, read the connector's action docs with `get_external_access_skill_docs`
+    (or `describe_connector` with `with_direct_access_guidance=True`) to
     learn the entity types, actions, and required `api_args`; argument names
     differ per connector and are not guessable.
     """
@@ -1892,6 +1960,7 @@ def _execute_external_api_action(  # noqa: PLR0913  # Explicit args mirror the c
 
 
 @mcp_tool(
+    title="Execute external SQL query",  # Use capital 'SQL' in tool title
     read_only=True,
     idempotent=True,
     open_world=True,
@@ -1963,6 +2032,26 @@ def execute_external_sql_query(
 
     Only SQL-passthrough destinations (Snowflake/BigQuery) support this tool.
 
+    Use three-part table names: BigQuery `project.dataset.table` maps to
+    database.schema.table, as does Snowflake `database.schema.table`. `SHOW DATABASES`
+    identifies the configured project/database, not its datasets/schemas; `SHOW TABLES`
+    discovers tables across that context's schemas without changing the default query
+    dataset/schema. BigQuery metadata is scoped to the configured query location and
+    warehouse metadata permissions still apply.
+
+    For expected loading schemas, call `describe_connector` with
+    `with_replication_details=True` or `with_direct_access_guidance=True`. Connection
+    namespace overrides and prefixes describe where each sync writes, not where
+    unqualified queries resolve. Source-derived namespaces and schema templates may
+    vary per stream. These hints are advisory, not exhaustive warehouse inventory or
+    an authorization boundary. Confirm table names with discovery and qualify queries
+    rather than assuming every connection loads into the destination default schema.
+
+    Useful, for example, for debugging pipelines and inspecting what a sync landed:
+    discovering which tables a sync created, sampling rows to see how records are
+    shaped and keyed, checking freshness or row counts, or exploring raw tables
+    before designing downstream models.
+
     Run `SHOW TABLES` first to discover tables and `SHOW DATABASES` to see the
     databases the destination is scoped to; `sql_dialect` defaults to the
     destination's registered dialect. Use `DESCRIBE TABLE <table>` to return a
@@ -2013,8 +2102,8 @@ def _search_disabled_errors(
         ),
         "Once search is enabled, the connector's synced data must be indexed before "
         "searches return results. New syncs are indexed as they run; data already in the "
-        "destination is indexed only after `request_cloud_search_index_backfill`. Call "
-        "`get_cloud_search_status` to check which streams are indexed and whether their "
+        "destination is indexed only after `request_search_index_backfill`. Call "
+        "`get_search_index_status` to check which streams are indexed and whether their "
         "backfill is complete.",
     ]
 
@@ -2127,17 +2216,21 @@ def execute_external_search_query(  # noqa: PLR0913  # Explicit args mirror the 
 ) -> ExternalSearchResult:
     """Search indexed data for a deployed Cloud source or destination.
 
+    Useful, for example, for finding records by meaning or keyword when the exact
+    entity, table, or ID isn't known, such as conversations about a customer or
+    tickets that mention an error.
+
     A source searches its own indexed data; a destination searches every indexed source
     synced to it. On a destination search, every `streams` entry needs the `source_id`
     of the source that stream belongs to. When results are empty, call
-    `get_cloud_search_status` to check which streams are indexed and whether their
+    `get_search_index_status` to check which streams are indexed and whether their
     backfill is complete.
 
     Keep responses small: use `streams[].fields` to project each hit's `entity_data`
     (an output projection, not a match filter) and `max_context_chars` to truncate
     each hit's `context`. `min_similarity` and `max_similarity_diff` apply only to
     `semantic` and `hybrid` searches. Pass `destination_id` for a source synced to
-    several enabled destinations; the IDs are listed by `get_cloud_search_status`.
+    several enabled destinations; the IDs are listed by `get_search_index_status`.
     Per-index failures are reported in `warnings`.
 
     A keyword-only hit leaves out of `entity_data` any field longer than 4096 characters
@@ -2173,7 +2266,7 @@ def execute_external_search_query(  # noqa: PLR0913  # Explicit args mirror the 
     idempotent=True,
     external_access=True,
 )
-def get_cloud_search_status(
+def get_search_index_status(
     ctx: Context,
     *,
     connector_id: Annotated[
@@ -2219,7 +2312,7 @@ def get_cloud_search_status(
     search indexes. A stream is searchable once it has at least one index.
 
     Turning search on indexes only data from new syncs; data already in the destination
-    is indexed only by a backfill requested with `request_cloud_search_index_backfill`. A
+    is indexed only by a backfill requested with `request_search_index_backfill`. A
     stream's `backfill` is null when none was requested. Otherwise `backfill.status` is
     `starting`, `running`, `finalizing`, `complete`, `failed`, or `cancelled`, with
     `failed_at` or `cancelled_at` set when the run ended that way. A stream whose table is
@@ -2243,6 +2336,7 @@ def get_cloud_search_status(
         return status
 
     def matches(stream: ExternalSearchStreamStatus) -> bool:
+        """Check whether a stream matches both optional filters."""
         return (stream_name is None or stream.name == stream_name) and (
             namespace is None or stream.namespace == namespace
         )
@@ -2274,10 +2368,11 @@ def get_cloud_search_status(
 
 
 @mcp_tool(
+    destructive=True,  # Re-running a stream may rewrite existing index entries
     pipeline_change=False,
     external_access=True,
 )
-def request_cloud_search_index_backfill(
+def request_search_index_backfill(
     ctx: Context,
     *,
     connection_id: Annotated[
@@ -2330,7 +2425,7 @@ def request_cloud_search_index_backfill(
     run. Without `streams`, the result has one entry with an empty `stream_name` that
     stands for every stream.
 
-    Track progress with `get_cloud_search_status` on the connection's source or
+    Track progress with `get_search_index_status` on the connection's source or
     destination: each stream's `backfill.status` moves from `starting` through `running`
     and `finalizing` to `complete`, `failed`, or `cancelled`. A stream whose table exists
     but is empty completes with 0 records. A run fails when, for example, the destination
@@ -2357,7 +2452,7 @@ def request_cloud_search_index_backfill(
     read_only=True,
     idempotent=True,
 )
-def check_cloud_connector(
+def check_connector(
     ctx: Context,
     connector_id: Annotated[
         str,
@@ -2396,7 +2491,7 @@ def check_cloud_connector(
     read_only=True,
     idempotent=True,
 )
-def describe_cloud_connection(
+def describe_connection(
     ctx: Context,
     connection_id: Annotated[
         str,
@@ -2435,7 +2530,7 @@ def describe_cloud_connection(
     read_only=True,
     idempotent=True,
 )
-def get_cloud_sync_logs(
+def get_connection_sync_logs(
     ctx: Context,
     connection_id: Annotated[
         str,
@@ -2514,7 +2609,7 @@ def get_cloud_sync_logs(
                 resource_type="sync job",
                 resource_name_or_id=connection_id,
                 message=f"Connection '{connection_id}' has no sync jobs yet.",
-                guidance="Run a sync first with `run_cloud_sync`, then request its logs.",
+                guidance="Run a sync first with `run_connection_sync`, then request its logs.",
             )
         raise AirbyteMissingResourceError(
             resource_type="sync job",
@@ -2589,7 +2684,7 @@ def get_cloud_sync_logs(
     read_only=True,
     idempotent=True,
 )
-def list_cloud_connections(
+def list_connections(
     ctx: Context,
     *,
     workspace_id: Annotated[
@@ -2633,7 +2728,7 @@ def list_cloud_connections(
 ) -> list[CloudConnectionResult]:
     """List all deployed connections in the Airbyte Cloud workspace.
 
-    Each connection links a source to a destination; use `list_cloud_connectors` to list those
+    Each connection links a source to a destination; use `list_connectors` to list those
     deployed resources.
 
     When with_connection_status is True, each connection result will include
@@ -2716,7 +2811,7 @@ def list_cloud_connections(
     read_only=True,
     idempotent=True,
 )
-def list_cloud_workspaces(
+def list_workspaces(
     ctx: Context,
     *,
     organization_id: Annotated[
@@ -2804,7 +2899,7 @@ def list_cloud_workspaces(
         "No workspaces were returned for these credentials. By default only direct "
         "workspace memberships are listed; pass `organization_id` or a broader "
         "`privilege_scope` to discover organization-wide workspaces, or call "
-        "`get_default_cloud_context` to inspect your memberships."
+        "`get_default_workspace_context` to inspect your memberships."
         if not results
         else None
     )
@@ -2837,7 +2932,7 @@ def list_cloud_workspaces(
     read_only=True,
     idempotent=True,
 )
-def get_default_cloud_context(ctx: Context) -> CloudDefaultContextResult:
+def get_default_workspace_context(ctx: Context) -> CloudDefaultContextResult:
     """Return the authenticated user's default Cloud context.
 
     This is the one-call orientation entry point: it resolves the default
@@ -2889,13 +2984,13 @@ def get_default_cloud_context(ctx: Context) -> CloudDefaultContextResult:
     if truncated_memberships:
         message += (
             f" Only the first {' and '.join(truncated_memberships)} are shown; use "
-            "list_cloud_organizations or list_cloud_workspaces to see the rest."
+            "list_organizations or list_workspaces to see the rest."
         )
     if context.unvalidated_workspace_count > 0:
         message += (
             f" {context.unvalidated_workspace_count} additional direct workspace grant(s) were "
             f"not validated because this call checks at most {_MAX_WORKSPACES_TO_VALIDATE}; use "
-            "list_cloud_workspaces to see them."
+            "list_workspaces to see them."
         )
     if resolved_default_workspace is not None:
         message = resolved_default_workspace + message
@@ -2932,7 +3027,7 @@ def get_default_cloud_context(ctx: Context) -> CloudDefaultContextResult:
     idempotent=True,
     destructive=True,
 )
-def set_default_cloud_workspace(
+def set_default_workspace(
     ctx: Context,
     user_email: Annotated[
         str,
@@ -2940,7 +3035,7 @@ def set_default_cloud_workspace(
             description=(
                 "Email of the authenticated Airbyte Cloud user this change applies to. "
                 "Must match the current credentials' user (compared case-insensitively, "
-                "ignoring surrounding whitespace; see get_default_cloud_context); "
+                "ignoring surrounding whitespace; see get_default_workspace_context); "
                 "mismatches fail with a validation error. "
                 "Required as a safety confirmation."
             ),
@@ -2962,10 +3057,10 @@ def set_default_cloud_workspace(
 
     WARNING: This is a persistent, account-level change. It updates the user's
     stored default workspace in Airbyte Cloud, which affects both future MCP
-    sessions (default_workspace_id in get_default_cloud_context and every tool
+    sessions (default_workspace_id in get_default_workspace_context and every tool
     that falls back to the default workspace) AND the Airbyte Cloud web app,
     where this workspace becomes the user's default landing workspace.
-    Call get_default_cloud_context first to confirm the current user and to
+    Call get_default_workspace_context first to confirm the current user and to
     discover member workspaces.
     """
     result: CloudDefaultWorkspaceUpdateInfo = _get_cloud_client(ctx).set_default_workspace_for_user(
@@ -2990,7 +3085,7 @@ def set_default_cloud_workspace(
     read_only=True,
     idempotent=True,
 )
-def list_cloud_organizations(
+def list_organizations(
     ctx: Context,
     name_contains: Annotated[
         str | None,
@@ -3057,7 +3152,7 @@ def list_cloud_organizations(
             message=(
                 "No organizations were returned for these credentials. Verify the credentials "
                 "or ask the user to provide an organization ID. Call "
-                "`get_default_cloud_context` to inspect your memberships."
+                "`get_default_workspace_context` to inspect your memberships."
             ),
         )
 
@@ -3084,7 +3179,7 @@ def list_cloud_organizations(
     read_only=True,
     idempotent=True,
 )
-def describe_cloud_workspace(
+def describe_workspace(
     ctx: Context,
     *,
     workspace_id: Annotated[
@@ -3101,7 +3196,7 @@ def describe_cloud_workspace(
 ) -> CloudWorkspaceResult:
     """Get basic details about a workspace (ID, name, URL, parent organization).
 
-    Does not include billing/account status; use `get_cloud_organization_billing_status` for that.
+    Does not include billing/account status; use `get_organization_billing_status` for that.
     """
     workspace = _get_cloud_workspace(ctx, workspace_id)
     workspace_response = api_util.get_workspace(
@@ -3129,7 +3224,7 @@ def describe_cloud_workspace(
     read_only=True,
     idempotent=True,
 )
-def describe_cloud_organization(
+def describe_organization(
     ctx: Context,
     *,
     organization_id: Annotated[
@@ -3150,7 +3245,7 @@ def describe_cloud_organization(
 ) -> CloudOrganizationResult:
     """Get basic details about an organization (ID, name, email, feature flags).
 
-    Billing/account status is available via `get_cloud_organization_billing_status`.
+    Billing/account status is available via `get_organization_billing_status`.
 
     With no arguments, resolves the organization from the configured default or the
     authenticated user's sole membership. With multiple memberships, the error lists
@@ -3175,7 +3270,7 @@ def describe_cloud_organization(
     read_only=True,
     idempotent=True,
 )
-def get_cloud_organization_billing_status(
+def get_organization_billing_status(
     ctx: Context,
     *,
     organization_id: Annotated[
@@ -3223,9 +3318,19 @@ def get_cloud_organization_billing_status(
     )
 
 
+def _check_builder_project_created_in_session(project: CloudConnectorBuilderProject) -> None:
+    try:
+        check_guid_created_in_session(project.builder_project_id)
+    except AirbyteLocalDemoModeError:
+        if project.source_definition_id is None:
+            raise
+        check_guid_created_in_session(project.source_definition_id)
+
+
 def _get_custom_source_definition_description(
     custom_source: CustomCloudSourceDefinition,
 ) -> str:
+    """Format the useful metadata for a custom source definition."""
     return "\n".join(
         [
             f" - Custom Source Name: {custom_source.name}",
@@ -3237,7 +3342,10 @@ def _get_custom_source_definition_description(
     )
 
 
-@mcp_tool(extra_help_text=_manifest_yaml_source_hint)
+@mcp_tool(
+    destructive=True,  # testing_values replace existing Builder project testing values
+    extra_help_text=_manifest_and_testing_values_hint,
+)
 def publish_custom_source_definition(  # noqa: PLR0913  # Explicit args mirror MCP tool schema.
     ctx: Context,
     name: Annotated[
@@ -3293,7 +3401,6 @@ def publish_custom_source_definition(  # noqa: PLR0913  # Explicit args mirror M
             description=(
                 "Optional testing configuration values for the Builder UI. "
                 "Can be provided as a JSON object or JSON string. "
-                "Supports inline secret refs via 'secret_reference::ENV_VAR_NAME' syntax. "
                 "If provided, these values replace any existing testing values "
                 "for the connector builder project, allowing immediate test read operations."
             ),
@@ -3314,6 +3421,18 @@ def publish_custom_source_definition(  # noqa: PLR0913  # Explicit args mirror M
         ),
         TraceArg.FINGERPRINT,
     ],
+    builder_project_id: Annotated[
+        str | None,
+        Field(
+            description=(
+                "Optional. Publish this Connector Builder project's draft instead of creating "
+                "a new project. The manifest arguments are then optional and replace the draft "
+                "before publishing. If the project is already published, the draft becomes a "
+                "new active version of its existing definition."
+            ),
+            default=None,
+        ),
+    ] = None,
 ) -> str:
     """Publish a custom YAML source connector definition to Airbyte Cloud.
 
@@ -3324,7 +3443,7 @@ def publish_custom_source_definition(  # noqa: PLR0913  # Explicit args mirror M
         manifest_yaml_text=manifest_yaml_text,
         manifest_yaml_file=manifest_yaml_file,
     )
-    if processed_manifest is None:
+    if processed_manifest is None and builder_project_id is None:
         error_message = (
             "Provide the manifest in `manifest_yaml_text` (full YAML contents) or "
             "`manifest_yaml_file` (local path)."
@@ -3347,12 +3466,17 @@ def publish_custom_source_definition(  # noqa: PLR0913  # Explicit args mirror M
         )
 
     workspace: CloudWorkspace = _get_cloud_workspace(ctx, workspace_id)
+    if builder_project_id is not None:
+        _check_builder_project_created_in_session(
+            workspace.get_connector_builder_project(builder_project_id)
+        )
     custom_source = workspace.publish_custom_source_definition(
         name=name,
         manifest_yaml=processed_manifest,
         unique=unique,
         pre_validate=pre_validate,
         testing_values=testing_values_dict,
+        builder_project_id=builder_project_id,
     )
     register_guid_created_in_session(custom_source.definition_id)
     return (
@@ -3463,53 +3587,7 @@ def get_custom_source_definition(
     return result
 
 
-@mcp_tool(
-    read_only=True,
-    idempotent=True,
-)
-def get_connector_builder_draft_manifest(
-    ctx: Context,
-    definition_id: Annotated[
-        str,
-        Field(description="The ID of the custom source definition to retrieve the draft for."),
-    ],
-    *,
-    workspace_id: Annotated[
-        str | None,
-        Field(
-            description=WORKSPACE_ID_TIP_TEXT,
-            default=None,
-        ),
-        TraceArg.OMIT,
-    ],
-) -> dict[str, Any]:
-    """Get the Connector Builder draft manifest for a custom source definition.
-
-    Returns the working draft manifest that has been saved in the Connector Builder UI
-    but not yet published. This is useful for inspecting what a user is currently working
-    on before they publish their changes.
-
-    If no draft exists, 'has_draft' will be False and 'draft_manifest' will be None.
-    The published manifest is always included for comparison.
-    """
-    workspace: CloudWorkspace = _get_cloud_workspace(ctx, workspace_id)
-    definition = workspace.get_custom_source_definition(
-        definition_id=definition_id,
-        definition_type="yaml",
-    )
-
-    return {
-        "definition_id": definition.definition_id,
-        "name": definition.name,
-        "connector_builder_project_id": definition.connector_builder_project_id,
-        "connector_builder_project_url": definition.connector_builder_project_url,
-        "has_draft": definition.has_draft,
-        "draft_manifest": definition.draft_manifest,
-        "published_manifest": definition.manifest,
-    }
-
-
-@mcp_tool(destructive=True, extra_help_text=_manifest_yaml_source_hint)
+@mcp_tool(destructive=True, extra_help_text=_manifest_and_testing_values_hint)
 def update_custom_source_definition(  # noqa: PLR0913  # Explicit args mirror MCP tool schema.
     ctx: Context,
     definition_id: Annotated[
@@ -3569,7 +3647,6 @@ def update_custom_source_definition(  # noqa: PLR0913  # Explicit args mirror MC
             description=(
                 "Optional testing configuration values for the Builder UI. "
                 "Can be provided as a JSON object or JSON string. "
-                "Supports inline secret refs via 'secret_reference::ENV_VAR_NAME' syntax. "
                 "If provided, these values replace any existing testing values "
                 "for the connector builder project. The entire testing values object "
                 "is overwritten, so pass the full set of values you want to persist."
@@ -3612,7 +3689,9 @@ def update_custom_source_definition(  # noqa: PLR0913  # Explicit args mirror MC
         required_args = ["name", "manifest_yaml_text"]
         if is_trusted_execution_enabled():
             required_args.append("manifest_yaml_file")
-        required_args.extend(("testing_values", "testing_values_secret_name"))
+        required_args.append("testing_values")
+        if is_trusted_execution_enabled():
+            required_args.append("testing_values_secret_name")
         raise AirbyteLibInputError(
             message=(
                 f"At least one of {', '.join(required_args)} must be provided to update "
@@ -3732,7 +3811,7 @@ def permanently_delete_custom_source_definition(
     destructive=True,
     extra_help_text=DELETE_NAME_GUARD_TIP_TEXT,
 )
-def permanently_delete_cloud_connector(
+def permanently_delete_connector(
     ctx: Context,
     connector_id: Annotated[
         str,
@@ -3806,7 +3885,7 @@ def permanently_delete_cloud_connector(
     destructive=True,
     extra_help_text=DELETE_NAME_GUARD_TIP_TEXT,
 )
-def permanently_delete_cloud_connection(
+def permanently_delete_connection(
     ctx: Context,
     connection_id: Annotated[
         str,
@@ -3881,8 +3960,11 @@ def permanently_delete_cloud_connection(
     return f"Successfully deleted connection '{actual_name}' (ID: {connection_id})"
 
 
-@mcp_tool()
-def rename_cloud_connector(
+@mcp_tool(
+    destructive=True,  # Overwrites the existing name
+    idempotent=True,
+)
+def rename_connector(
     ctx: Context,
     connector_id: Annotated[
         str,
@@ -3922,8 +4004,9 @@ def rename_cloud_connector(
 
 @mcp_tool(
     destructive=True,
+    idempotent=True,
 )
-def update_cloud_connector_config(
+def update_connector_config(
     ctx: Context,
     connector_id: Annotated[
         str,
@@ -3982,8 +4065,11 @@ def update_cloud_connector_config(
     )
 
 
-@mcp_tool()
-def rename_cloud_connection(
+@mcp_tool(
+    destructive=True,  # Overwrites the existing name
+    idempotent=True,
+)
+def rename_connection(
     ctx: Context,
     connection_id: Annotated[
         str,
@@ -4016,8 +4102,9 @@ def rename_cloud_connection(
 
 @mcp_tool(
     destructive=True,
+    idempotent=True,
 )
-def set_cloud_connection_table_prefix(
+def set_connection_table_prefix(
     ctx: Context,
     connection_id: Annotated[
         str,
@@ -4055,8 +4142,9 @@ def set_cloud_connection_table_prefix(
 
 @mcp_tool(
     destructive=True,
+    idempotent=True,
 )
-def set_cloud_connection_selected_streams(
+def set_connection_selected_streams(
     ctx: Context,
     connection_id: Annotated[
         str,
@@ -4100,10 +4188,119 @@ def set_cloud_connection_selected_streams(
     )
 
 
+def _is_unsafe_connection_update_tool_enabled(ctx: Context) -> bool:
+    """Return whether `update_connection_unsafe` is advertised to this caller.
+
+    Mirrors the tool filters that can hide it: insiders mode, destructive tools, pipeline
+    changes, and read-only mode. Update this helper when those filters change. It does not
+    see a per-tool exclusion list that names only this tool.
+    """
+    return (
+        _insiders_mode(ctx) is True
+        and destructive_tools_allowed(ctx) is not False
+        and pipeline_changes_allowed(ctx) is not False
+        and not airbyte_readonly_mode_enabled()
+    )
+
+
+def _apply_stream_config_overrides(
+    ctx: Context,
+    connection: CloudConnection,
+    overrides: list[StreamConfigOverride] | None,
+    *,
+    allow_unsafe: bool,
+    apply_discover_request_id: str | None,
+) -> StreamConfigUpdateResult | None:
+    """Apply overrides before other connection writes and add safety guidance."""
+    if not overrides and apply_discover_request_id is None:
+        return None
+
+    try:
+        return connection.update_stream_configs(
+            overrides or [],
+            allow_unsafe=allow_unsafe,
+            discover_request_id=apply_discover_request_id,
+        )
+    except AirbyteUnsafeStreamConfigChangeError as error:
+        guidance = (
+            "Retry with `update_connection_unsafe`."
+            if _is_unsafe_connection_update_tool_enabled(ctx)
+            else "Ask the user to make this change in the Airbyte UI. "
+            f"Connection URL: {connection.connection_url}"
+        )
+        raise AirbyteUnsafeStreamConfigChangeError(
+            message=error.get_message(),
+            context=error.context,
+            guidance=guidance,
+        ) from error
+
+
+def _update_cloud_connection_impl(  # noqa: PLR0913
+    ctx: Context,
+    connection_id: str,
+    *,
+    enabled: bool | None,
+    cron_expression: str | None,
+    interval_hours: int | None,
+    manual_schedule: bool | None,
+    override_stream_configs: list[StreamConfigOverride] | None,
+    apply_discover_request_id: str | None,
+    workspace_id: str | None,
+    allow_unsafe: bool,
+) -> str:
+    """Validate and apply settings in the order that protects catalog updates."""
+    _validate_update_connection_args(
+        enabled=enabled,
+        cron_expression=cron_expression,
+        interval_hours=interval_hours,
+        manual_schedule=manual_schedule,
+        override_stream_configs=override_stream_configs,
+        apply_discover_request_id=apply_discover_request_id,
+    )
+
+    workspace: CloudWorkspace = _get_cloud_workspace(ctx, workspace_id)
+    connection = workspace.get_connection(connection_id=connection_id)
+
+    stream_config_result = _apply_stream_config_overrides(
+        ctx,
+        connection,
+        override_stream_configs,
+        allow_unsafe=allow_unsafe,
+        apply_discover_request_id=apply_discover_request_id,
+    )
+
+    if enabled is not None:
+        connection.set_enabled(enabled=enabled)
+        status_str = "enabled" if enabled else "disabled"
+        status_summary = f"status set to '{status_str}'"
+    else:
+        status_summary = None
+
+    schedule_summary = _set_connection_schedule(
+        connection,
+        cron_expression=cron_expression,
+        interval_hours=interval_hours,
+        manual_schedule=manual_schedule,
+    )
+
+    changes_made = stream_config_result.summary_lines() if stream_config_result else []
+    if status_summary is not None:
+        changes_made.append(status_summary)
+    if schedule_summary is not None:
+        changes_made.append(schedule_summary)
+
+    changes_summary = ", ".join(changes_made)
+    return (
+        f"Successfully updated connection '{connection_id}': {changes_summary}. "
+        f"URL: {connection.connection_url}"
+    )
+
+
 @mcp_tool(
-    destructive=True,
+    destructive=True,  # Overwrites existing connection settings and stream configurations
+    idempotent=True,
 )
-def update_cloud_connection(
+def update_connection(  # noqa: PLR0913
     ctx: Context,
     connection_id: Annotated[
         str,
@@ -4169,6 +4366,29 @@ def update_cloud_connection(
             default=None,
         ),
     ],
+    override_stream_configs: Annotated[
+        list[StreamConfigOverride] | None,
+        Field(
+            description=(
+                "Update one or more streams' sync mode, destination sync mode, or top-level "
+                "cursor field. Changes that would invalidate a stream's saved state are "
+                "rejected, and the error says how to proceed."
+            ),
+            default=None,
+        ),
+        TraceArg.FINGERPRINT,
+    ],
+    apply_discover_request_id: Annotated[
+        str | None,
+        Field(
+            description=(
+                "Apply the catalog from a completed `discover_source_catalog` request. "
+                "Use a request started for this connection's source; its output must "
+                "still be available."
+            ),
+            default=None,
+        ),
+    ],
     workspace_id: Annotated[
         str | None,
         Field(
@@ -4178,72 +4398,283 @@ def update_cloud_connection(
         TraceArg.OMIT,
     ],
 ) -> str:
-    """Update a connection's settings on Airbyte Cloud.
+    """Update a connection's settings and stream configurations on Airbyte Cloud.
 
-    This tool allows updating multiple connection settings in a single call:
-    - Enable or disable the connection
-    - Set a cron schedule for automatic syncs
-    - Set a basic interval schedule in whole hours between syncs
-    - Switch to manual scheduling (no automatic syncs)
-
-    At least one setting must be provided. `interval_hours`, `cron_expression`, and
-    `manual_schedule=True` are mutually exclusive.
+    This tool can update the connection status, schedule, and per-stream sync configuration.
+    `interval_hours`, `cron_expression`, and `manual_schedule=True` are mutually exclusive.
+    Stream overrides are validated before any settings are written and saved in one catalog
+    update.
     """
     check_guid_created_in_session(connection_id)
+    return _update_cloud_connection_impl(
+        ctx,
+        connection_id,
+        enabled=enabled,
+        cron_expression=cron_expression,
+        interval_hours=interval_hours,
+        manual_schedule=manual_schedule,
+        override_stream_configs=override_stream_configs,
+        apply_discover_request_id=apply_discover_request_id,
+        workspace_id=workspace_id,
+        allow_unsafe=False,
+    )
 
-    # Validate that at least one setting is provided
-    if (
-        enabled is None
-        and cron_expression is None
-        and interval_hours is None
-        and manual_schedule is None
-    ):
+
+@mcp_tool(
+    title="Update connection (unsafe)",  # Parenthesize 'unsafe' qualifier in tool title
+    destructive=True,
+    insiders_only=True,
+)
+def update_connection_unsafe(  # noqa: PLR0913
+    ctx: Context,
+    connection_id: Annotated[
+        str,
+        Field(description="The ID of the connection to update."),
+    ],
+    *,
+    enabled: Annotated[
+        bool | None,
+        Field(
+            description=(
+                "Set the connection's enabled status. "
+                "True enables the connection (status='active'), "
+                "False disables it (status='inactive'). "
+                "Leave unset to keep the current status."
+            ),
+            default=None,
+        ),
+    ],
+    cron_expression: Annotated[
+        str | None,
+        Field(
+            description=(
+                "A Quartz cron expression defining when syncs should run. "
+                "Must have 6 or 7 space-separated fields "
+                "(seconds, minutes, hours, day-of-month, month, day-of-week[, year]), "
+                "optionally followed by a timezone ID. Standard 5-field Unix cron "
+                "expressions are rejected by the API, and schedules may run at most "
+                "once per hour (seconds and minutes cannot be '*'). "
+                "Examples: '0 0 0 * * ?' (daily at midnight UTC), "
+                "'0 0 */6 * * ?' (every 6 hours), "
+                "'0 0 0 ? * SUN' (weekly on Sunday at midnight UTC), "
+                "'0 0 9 ? * MON-FRI US/Pacific' (weekdays at 9am Pacific). "
+                "Leave unset to keep the current schedule. "
+                "Cannot be used together with 'interval_hours' or 'manual_schedule=True'."
+            ),
+            default=None,
+        ),
+        TraceArg.FINGERPRINT,
+    ],
+    interval_hours: Annotated[
+        int | None,
+        Field(
+            description=(
+                "A positive whole number of hours between automatic syncs. "
+                "Uses a basic interval schedule: an active connection runs a first sync "
+                "as soon as scheduling is enabled, then measures each interval from "
+                "the previous sync. Leave unset to keep the current schedule. "
+                "Cannot be used together with 'cron_expression' or 'manual_schedule=True'."
+            ),
+            default=None,
+            strict=True,
+            gt=0,
+        ),
+    ],
+    manual_schedule: Annotated[
+        bool | None,
+        Field(
+            description=(
+                "Set to True to disable automatic syncs (manual scheduling only). "
+                "Syncs will only run when manually triggered. "
+                "Cannot be used together with 'cron_expression' or 'interval_hours'."
+            ),
+            default=None,
+        ),
+    ],
+    override_stream_configs: Annotated[
+        list[StreamConfigOverride] | None,
+        Field(
+            description=(
+                "Update one or more streams' sync configuration, including a top-level cursor "
+                "field and unsafe changes."
+            ),
+            default=None,
+        ),
+        TraceArg.FINGERPRINT,
+    ],
+    apply_discover_request_id: Annotated[
+        str | None,
+        Field(
+            description=(
+                "Apply the catalog from a completed `discover_source_catalog` request. "
+                "Use a request started for this connection's source; its output must "
+                "still be available."
+            ),
+            default=None,
+        ),
+    ],
+    workspace_id: Annotated[
+        str | None,
+        Field(
+            description=WORKSPACE_ID_TIP_TEXT,
+            default=None,
+        ),
+        TraceArg.OMIT,
+    ],
+) -> str:
+    """Update connection settings and override stream configurations despite saved state.
+
+    Unsafe changes can make the destination's data inconsistent. By default, the platform
+    refreshes or resets every changed stream.
+    """
+    check_guid_created_in_session(connection_id)
+    return _update_cloud_connection_impl(
+        ctx,
+        connection_id,
+        enabled=enabled,
+        cron_expression=cron_expression,
+        interval_hours=interval_hours,
+        manual_schedule=manual_schedule,
+        override_stream_configs=override_stream_configs,
+        apply_discover_request_id=apply_discover_request_id,
+        workspace_id=workspace_id,
+        allow_unsafe=True,
+    )
+
+
+@mcp_tool(destructive=False, pipeline_change=False)
+def discover_source_catalog(
+    ctx: Context,
+    *,
+    source_id: Annotated[
+        str | None,
+        Field(
+            description=(
+                "The source ID. Starts a new asynchronous catalog discover by default; "
+                "set `no_refresh=True` to use the latest saved catalog instead."
+            ),
+            default=None,
+        ),
+        TraceArg.FINGERPRINT,
+    ] = None,
+    discover_request_id: Annotated[
+        str | None,
+        Field(
+            description=(
+                "The request ID returned when a discover was started. Poll with this "
+                "value to retrieve its status and completed outcome. Pass it as "
+                "`apply_discover_request_id` to `update_connection` to apply the catalog."
+            ),
+            default=None,
+        ),
+        TraceArg.FINGERPRINT,
+    ] = None,
+    no_refresh: Annotated[
+        bool,
+        Field(
+            description=(
+                "With `source_id`, return the latest saved catalog without starting a "
+                "discover. The latest-saved-catalog mode cannot be applied to a connection."
+            ),
+            default=False,
+        ),
+    ] = False,
+    source_catalog_id: Annotated[
+        str | None,
+        Field(
+            description=(
+                "The newly discovered source catalog ID to compare. Comparing requires "
+                "exactly one `compare_to_*` argument; summary by ID alone is not supported yet."
+            ),
+            default=None,
+        ),
+        TraceArg.FINGERPRINT,
+    ] = None,
+    compare_to_source_catalog_id: Annotated[
+        str | None,
+        Field(
+            description="Compare `source_catalog_id` against this saved source catalog ID.",
+            default=None,
+        ),
+        TraceArg.FINGERPRINT,
+    ] = None,
+    compare_to_connection_id: Annotated[
+        str | None,
+        Field(
+            description="Compare `source_catalog_id` against this connection's current catalog.",
+            default=None,
+        ),
+        TraceArg.FINGERPRINT,
+    ] = None,
+    workspace_id: Annotated[
+        str | None,
+        Field(
+            description=WORKSPACE_ID_TIP_TEXT,
+            default=None,
+        ),
+        TraceArg.OMIT,
+    ] = None,
+) -> CloudSourceCatalogDiscoverResult:
+    """Start, check, or compare asynchronous Cloud source catalog discovers.
+
+    Starting a discover can be slow. Poll the returned `discover_request_id` to get
+    its status and outcome. Use `no_refresh=True` with `source_id` to read the latest
+    saved catalog; this mode cannot be applied to a connection. Compare catalogs by
+    passing `source_catalog_id` and exactly one comparison target. A catalog summary
+    by ID alone is not supported yet. To apply a completed discover catalog, pass its
+    `discover_request_id` as `apply_discover_request_id` to `update_connection`.
+    """
+    if compare_to_source_catalog_id is not None and compare_to_connection_id is not None:
         raise AirbyteLibInputError(
             message=(
-                "At least one setting must be provided: 'enabled', 'interval_hours', "
-                "'cron_expression', or 'manual_schedule'."
+                "Provide `compare_to_source_catalog_id` or `compare_to_connection_id`, " "not both."
             ),
         )
-
-    # Validate mutually exclusive schedule options
-    if sum((interval_hours is not None, cron_expression is not None, manual_schedule is True)) > 1:
+    has_comparison_target = (
+        compare_to_source_catalog_id is not None or compare_to_connection_id is not None
+    )
+    if has_comparison_target and source_catalog_id is None:
         raise AirbyteLibInputError(
-            message=(
-                "Cannot specify more than one of 'interval_hours', 'cron_expression', "
-                "and 'manual_schedule=True'."
-            ),
+            message="Comparison targets require `source_catalog_id`.",
+        )
+    if source_catalog_id is not None:
+        if source_id is not None or discover_request_id is not None or no_refresh:
+            raise AirbyteLibInputError(
+                message=(
+                    "`source_catalog_id` cannot be combined with `source_id`, "
+                    "`discover_request_id`, or `no_refresh`."
+                ),
+            )
+        workspace: CloudWorkspace = _get_cloud_workspace(ctx, workspace_id)
+        return workspace.compare_source_catalogs(
+            source_catalog_id=source_catalog_id,
+            compare_to_source_catalog_id=compare_to_source_catalog_id,
+            compare_to_connection_id=compare_to_connection_id,
         )
 
-    if interval_hours is not None:
-        api_util.validate_interval_hours(interval_hours)
+    if discover_request_id is not None:
+        if source_id is not None:
+            raise AirbyteLibInputError(
+                message="Provide `source_id` or `discover_request_id`, not both.",
+            )
+        if no_refresh:
+            raise AirbyteLibInputError(
+                message="`no_refresh=True` cannot be used with `discover_request_id`.",
+            )
+    elif source_id is None:
+        raise AirbyteLibInputError(
+            message="Provide `source_id` or `discover_request_id`.",
+        )
 
     workspace: CloudWorkspace = _get_cloud_workspace(ctx, workspace_id)
-    connection = workspace.get_connection(connection_id=connection_id)
+    if discover_request_id is not None:
+        return workspace.get_catalog_discover_result(discover_request_id)
 
-    changes_made: list[str] = []
-
-    # Apply enabled status change
-    if enabled is not None:
-        connection.set_enabled(enabled=enabled)
-        status_str = "enabled" if enabled else "disabled"
-        changes_made.append(f"status set to '{status_str}'")
-
-    # Apply schedule change
-    if cron_expression is not None:
-        connection.set_schedule(cron_expression=cron_expression)
-        changes_made.append(f"schedule set to '{cron_expression}'")
-    elif interval_hours is not None:
-        connection.set_schedule(interval_hours=interval_hours)
-        changes_made.append(f"schedule set to 'every {interval_hours} hours'")
-    elif manual_schedule is True:
-        connection.set_manual_schedule()
-        changes_made.append("schedule set to 'manual'")
-
-    changes_summary = ", ".join(changes_made)
-    return (
-        f"Successfully updated connection '{connection_id}': {changes_summary}. "
-        f"URL: {connection.connection_url}"
-    )
+    assert source_id is not None
+    source = workspace.get_source(source_id=source_id)
+    if no_refresh:
+        return source.get_latest_saved_catalog()
+    return source.start_catalog_discover()
 
 
 @mcp_tool(
@@ -4342,7 +4773,7 @@ def register_cloud_tools(app: FastMCP) -> None:
     """
     exclude_args = ["workspace_id"] if AIRBYTE_CLOUD_WORKSPACE_ID_IS_SET else []
     if not is_trusted_execution_enabled():
-        exclude_args.append("manifest_yaml_file")
+        exclude_args.extend(("manifest_yaml_file", "testing_values_secret_name"))
     if exclude_args:
         _add_defaults_for_exclude_args(exclude_args)
     register_mcp_tools(

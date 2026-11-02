@@ -1810,7 +1810,7 @@ def test_mcp_describe_cloud_organization_resolves_without_arguments(
 
     monkeypatch.setattr(mcp_cloud, "_get_cloud_client", lambda _: DiscoveryClient())
 
-    result = mcp_cloud.describe_cloud_organization(
+    result = mcp_cloud.describe_organization(
         None,
         organization_id=None,
         organization_name=None,
@@ -1823,7 +1823,7 @@ def test_mcp_describe_cloud_organization_resolves_without_arguments(
 def test_mcp_describe_cloud_organization_returns_email_and_domain(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """`describe_cloud_organization` reports the contact email and its domain."""
+    """`describe_organization` reports the contact email and its domain."""
     _stub_organization_features(monkeypatch)
 
     class DiscoveryClient:
@@ -1836,7 +1836,7 @@ def test_mcp_describe_cloud_organization_returns_email_and_domain(
 
     monkeypatch.setattr(mcp_cloud, "_get_cloud_client", lambda _: DiscoveryClient())
 
-    result = mcp_cloud.describe_cloud_organization(
+    result = mcp_cloud.describe_organization(
         None, organization_id="organization-id", organization_name=None
     )
 
@@ -1847,7 +1847,7 @@ def test_mcp_describe_cloud_organization_returns_email_and_domain(
 def test_mcp_list_cloud_organizations_hides_email_and_reports_domain(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """`list_cloud_organizations` omits contact emails and reports only the domain."""
+    """`list_organizations` omits contact emails and reports only the domain."""
     _stub_organization_features(monkeypatch)
 
     class DiscoveryClient:
@@ -1862,7 +1862,7 @@ def test_mcp_list_cloud_organizations_hides_email_and_reports_domain(
 
     monkeypatch.setattr(mcp_cloud, "_get_cloud_client", lambda _: DiscoveryClient())
 
-    result = mcp_cloud.list_cloud_organizations(None)
+    result = mcp_cloud.list_organizations(None)
 
     assert result.organizations[0].email is None
     assert result.organizations[0].email_domain == "example.com"
@@ -2004,7 +2004,7 @@ def test_mcp_list_cloud_organizations_discovery(
 
     monkeypatch.setattr(mcp_cloud, "_get_cloud_client", lambda _: DiscoveryClient())
 
-    result = mcp_cloud.list_cloud_organizations(None)
+    result = mcp_cloud.list_organizations(None)
 
     assert len(result.organizations) == expected_count
     if expected_message is not None:
@@ -2024,7 +2024,7 @@ def test_mcp_list_cloud_organizations_preserves_missing_details(
 
     monkeypatch.setattr(mcp_cloud, "_get_cloud_client", lambda _: DiscoveryClient())
 
-    result = mcp_cloud.list_cloud_organizations(None)
+    result = mcp_cloud.list_organizations(None)
 
     assert result.organizations == [
         mcp_cloud.CloudOrganizationResult(
@@ -2732,7 +2732,7 @@ def test_mcp_list_cloud_connectors_enablement_failure_is_unknown(
     monkeypatch: pytest.MonkeyPatch,
     error: Exception,
 ) -> None:
-    """Enablement failures degrade to `"unknown"` in `list_cloud_connectors`, never raise."""
+    """Enablement failures degrade to `"unknown"` in `list_connectors`, never raise."""
     workspace = _make_workspace(
         monkeypatch, organization_info={"organizationId": "organization-id"}
     )
@@ -2755,7 +2755,7 @@ def test_mcp_list_cloud_connectors_enablement_failure_is_unknown(
     )
     monkeypatch.setattr(mcp_cloud, "_get_cloud_workspace", lambda _ctx, _id: workspace)
 
-    results = mcp_cloud.list_cloud_connectors(
+    results = mcp_cloud.list_connectors(
         None,
         connector_type=ConnectorType.SOURCE,
         workspace_id=None,
@@ -2792,7 +2792,7 @@ def test_mcp_describe_cloud_connector_enablement_failure_is_unknown(
     monkeypatch: pytest.MonkeyPatch,
     error: Exception,
 ) -> None:
-    """Enablement failures degrade to `"unknown"` in `describe_cloud_connector`."""
+    """Enablement failures degrade to `"unknown"` in `describe_connector`."""
     workspace = _make_workspace(
         monkeypatch, organization_info={"organizationId": "organization-id"}
     )
@@ -2906,7 +2906,7 @@ def test_mcp_list_cloud_connectors_source_features(
     )
     monkeypatch.setattr(mcp_cloud, "_get_cloud_workspace", lambda _ctx, _id: workspace)
 
-    results = mcp_cloud.list_cloud_connectors(
+    results = mcp_cloud.list_connectors(
         None,
         connector_type=ConnectorType.SOURCE,
         workspace_id=None,
@@ -2956,7 +2956,7 @@ def test_mcp_list_cloud_connectors_destination_features(
     _patch_workspace_connectors(monkeypatch, workspace)
     monkeypatch.setattr(mcp_cloud, "_get_cloud_workspace", lambda _ctx, _id: workspace)
 
-    results = mcp_cloud.list_cloud_connectors(
+    results = mcp_cloud.list_connectors(
         None,
         connector_type=ConnectorType.DESTINATION,
         workspace_id=None,
@@ -2989,7 +2989,7 @@ def test_mcp_list_cloud_connectors_rejects_non_positive_limit(
     monkeypatch.setattr(mcp_cloud, "_get_cloud_workspace", lambda _ctx, _id: workspace)
 
     with pytest.raises(AirbyteLibInputError, match="`limit` must be greater than 0."):
-        mcp_cloud.list_cloud_connectors(
+        mcp_cloud.list_connectors(
             None,
             connector_type=connector_type,
             workspace_id=None,
@@ -3132,7 +3132,7 @@ def test_mcp_list_cloud_workspaces_discovery(
 
     monkeypatch.setattr(mcp_cloud, "_get_cloud_client", lambda _: DiscoveryClient())
 
-    result = mcp_cloud.list_cloud_workspaces(
+    result = mcp_cloud.list_workspaces(
         None,
         organization_id=None,
         organization_name=None,
@@ -3179,7 +3179,7 @@ def test_mcp_list_cloud_organizations_forwards_filter_and_limit(
 
     monkeypatch.setattr(mcp_cloud, "_get_cloud_client", lambda _: DiscoveryClient())
 
-    result = mcp_cloud.list_cloud_organizations(
+    result = mcp_cloud.list_organizations(
         None,
         name_contains="develop",
         limit=1,
@@ -3215,7 +3215,7 @@ def test_mcp_list_cloud_organizations_empty_message(
 
     monkeypatch.setattr(mcp_cloud, "_get_cloud_client", lambda _: DiscoveryClient())
 
-    result = mcp_cloud.list_cloud_organizations(None, feature_filter=feature_filter)
+    result = mcp_cloud.list_organizations(None, feature_filter=feature_filter)
 
     assert result.organizations == []
     assert expected_fragment in (result.message or "")
@@ -3304,7 +3304,7 @@ def test_mcp_list_cloud_organizations_reports_feature_flags(
 
     monkeypatch.setattr(mcp_cloud, "_get_cloud_client", lambda _: DiscoveryClient())
 
-    result = mcp_cloud.list_cloud_organizations(
+    result = mcp_cloud.list_organizations(
         None, feature_filter=OrganizationFeature.DIRECT_ACCESS
     )
 

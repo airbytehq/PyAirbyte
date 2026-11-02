@@ -121,6 +121,7 @@ from airbyte.mcp._user_identity import (
     current_airbyte_user_id,
 )
 from airbyte.mcp.cloud import register_cloud_tools
+from airbyte.mcp.connector_builder import register_connector_builder_tools
 from airbyte.mcp.guidance import (
     KAPA_API_KEY_CONFIG_ARG,
     KAPA_RETRIEVAL_API_URL_CONFIG_ARG,
@@ -171,8 +172,8 @@ _INSTRUCTIONS_STDIO_CLOUD_AUTH = """
 _INSTRUCTIONS_WORKSPACE_GUIDANCE = """
   When a tool's workspace_id is omitted, the session's workspace is used: the
   workspace configured for the connection if one is set, otherwise the
-  authenticated user's default (or only) workspace. Use get_default_cloud_context or
-  list_cloud_workspaces to discover workspaces. Only call list_cloud_organizations
+  authenticated user's default (or only) workspace. Use get_default_workspace_context or
+  list_workspaces to discover workspaces. Only call list_organizations
   when you need to search organizations by name, passing name_contains. If multiple
   organizations or workspaces are candidates, ask the user to choose; never select
   automatically."""
@@ -602,6 +603,7 @@ app.middleware.insert(0, AirbyteUserMiddleware())
 
 # Register tools from each module
 register_cloud_tools(app)
+register_connector_builder_tools(app)
 register_local_tools(app)
 register_registry_tools(app)
 register_interactive_tools(app)
