@@ -305,6 +305,7 @@ def test_server_tools_register_expected_policies() -> None:
         "list_connector_builder_published_versions",
         "get_connector_builder_published_manifest",
         "revert_connector_builder_published_version",
+        "update_cloud_connection_unsafe",
     }
 
 

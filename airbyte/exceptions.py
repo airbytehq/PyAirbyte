@@ -218,6 +218,11 @@ class AirbyteLibInputError(AirbyteLibError, ValueError):
 
 
 @dataclass
+class AirbyteUnsafeStreamConfigChangeError(AirbyteLibInputError):
+    """Updating stream configuration could invalidate saved sync state."""
+
+
+@dataclass
 class AirbyteDeletionGuardError(AirbyteLibInputError):
     """Deletion rejected: the resource name must contain 'delete-me' or 'deleteme'.
 
