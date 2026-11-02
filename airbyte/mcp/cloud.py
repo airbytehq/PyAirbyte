@@ -4280,7 +4280,7 @@ def _update_cloud_connection_impl(  # noqa: PLR0913
 
 
 @mcp_tool(
-    destructive=False,
+    destructive=True,  # Overwrites existing connection settings and stream configurations
     idempotent=True,
 )
 def update_connection(  # noqa: PLR0913
