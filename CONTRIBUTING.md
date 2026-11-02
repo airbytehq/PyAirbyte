@@ -38,6 +38,9 @@ wrapper defaults to.
   in sentence case (`rename_connection` becomes `Rename connection`), so name tools accordingly.
   Pass `title=` only when the derived title reads poorly, and add a short inline comment giving
   the reason, for example `title="Run local SQL query",  # Use capital 'SQL' in tool title`.
+  (Pending: the default title and the `title=` kwarg need a `fastmcp-extensions` release that
+  supports them, plus a passthrough in PyAirbyte's `mcp_tool` wrapper. Until then, don't pass
+  `title=`.)
   Titles are display text only and must not tell the model when or how to use this or any other
   tool. Don't include the product or server name, because clients already show it. Qualify the
   noun only to tell apart tools on the same server (for example `Search the web` vs.
