@@ -86,7 +86,6 @@ requirements.
       ],
       "env": {
         "AIRBYTE_MCP_ENV_FILE": "/path/to/my/.mcp/airbyte_mcp.env",
-        "AIRBYTE_CLOUD_MCP_SAFE_MODE": "1",
         "AIRBYTE_CLOUD_MCP_READONLY_MODE": "0"
       }
     }
@@ -118,31 +117,54 @@ levels for Airbyte Cloud operations.
 
 **Important:** The below settings only affect Cloud operations; local operations are not affected.
 
-### Airbyte Cloud Safe Mode
-
-Safe mode is enabled by default and is controlled by the `AIRBYTE_CLOUD_MCP_SAFE_MODE` environment
-variable.
-
-When enabled, write operations are allowed but destructive operations (updates, deletions) are
-only allowed for objects created within the same session. For example, you can create a new
-connector and then delete it, but you cannot delete an existing connector that was not created in
-the current session. Modifications to configurations are likewise treated as potentially destructive
-and are only allowed for objects created in the current session.
-
-Set the environment variable `AIRBYTE_CLOUD_MCP_SAFE_MODE=0` to disable safe mode.
-
 ### Airbyte Cloud Read-Only Mode
 
 Read-only mode is not enabled by default and is controlled by the
 `AIRBYTE_CLOUD_MCP_READONLY_MODE` environment variable.
 
 When enabled, only read-only Cloud tools are available. Write and destructive operations are
-disabled.
-
-This mode does allow running syncs on existing connectors, since sync operations
-are not considered to be modifications of the Airbyte Cloud workspace.
+disabled. Running and cancelling syncs are also disabled.
 
 Set the environment variable `AIRBYTE_CLOUD_MCP_READONLY_MODE=1` to enable read-only mode.
+HTTP clients that cannot send custom headers can use the shared standard filter's
+`?read-only=true` URL parameter, for example
+`https://mcp.airbyte.com/mcp?read-only=true`.
+
+### Local Demo Mode
+
+Local demo mode is opt-in and STDIO-only: set `AIRBYTE_CLOUD_MCP_LOCAL_DEMO_MODE=1` to
+enable it (it is ignored over the hosted HTTP transport). When enabled, updates and
+deletions are only allowed on resources created in the current session; renames are
+still allowed. The delete guard still applies.
+
+### Delete Guard
+
+Deletion tools only delete resources whose names contain `delete-me` or `deleteme` (case
+insensitive). To opt out, set `AIRBYTE_CLOUD_MCP_DISABLE_DELETE_GUARD=1` or send the
+`X-MCP-Disable-Delete-Guard: 1` request header; the same environment and header rules as the
+permission settings below apply. The stronger option is to disable deletions entirely with
+`AIRBYTE_CLOUD_MCP_ALLOW_DESTRUCTIVE_TOOLS=0` or `X-MCP-Allow-Destructive-Tools: 0`.
+
+## Airbyte Cloud Pipeline and External Access Permissions
+
+Pipeline changes and external access can be controlled independently. The
+`AIRBYTE_CLOUD_MCP_ALLOW_PIPELINE_CHANGES` environment variable and
+`X-MCP-Allow-Pipeline-Changes` request header control pipeline-changing tools. The
+`AIRBYTE_CLOUD_MCP_ALLOW_EXTERNAL_ACCESS` environment variable and
+`X-MCP-Allow-External-Access` request header control external-access tools, such as
+`execute_external_api_query`, which can run connector passthrough queries, search, and inspect
+external data or skill documentation. The `AIRBYTE_CLOUD_MCP_ALLOW_DESTRUCTIVE_TOOLS`
+environment variable and `X-MCP-Allow-Destructive-Tools` request header control
+destructive-annotated tools.
+
+Each setting accepts `1`, `true`, or `yes` to allow, and `0`, `false`, or `no` to deny. An
+explicit environment denial cannot be overridden by a request header. An environment allow can
+be narrowed by a request header denial. If the environment setting is unset, the request header
+decides. `AIRBYTE_CLOUD_MCP_READONLY_MODE=1` also disables pipeline changes.
+
+Read-only mode blocks both pipeline changes and running or cancelling syncs. However, running
+or cancelling a sync is _not_ considered a pipeline change, so those tools stay available when
+pipeline changes are disabled, unless read-only mode is also enabled.
 
 ## Authentication for Remote (HTTP) Servers
 
@@ -164,6 +186,17 @@ Set `AIRBYTE_MCP_OIDC_CLIENT_ID`, `AIRBYTE_MCP_OIDC_CLIENT_SECRET`, and
 `AIRBYTE_MCP_OIDC_CONFIG_URL` (the OIDC discovery URL). Interactive clients open
 a browser (Keycloak Authorization Code + PKCE) and the resulting token is
 verified by the server. No bearer token to manage by hand.
+
+**SSO customers.** Airbyte Cloud SSO customers sign in through their own Keycloak
+realm, named after their company identifier. When the deployment also sets
+`AIRBYTE_MCP_SSO_OIDC_CONFIG_URL_TEMPLATE`, every interactive login first shows a
+small page served by the MCP server at `/auth/login` with two choices: continue
+with a regular Airbyte Cloud account, or type the company identifier (the same
+one used on the Cloud webapp's `/sso` page) to sign in with SSO. The server then
+runs the same Authorization Code + PKCE flow against that realm, and the token it
+verifies and forwards to the Cloud API is an SSO-realm token. This requires the
+deployment's OIDC client to exist, with the same client id, secret, and callback
+URL, in every SSO realm; Airbyte Cloud provisions that automatically.
 
 ### Machines / agents → headless bearer token
 
@@ -211,6 +244,17 @@ set; the interactive path activates once the OIDC client credentials are set.
 
 - `MCP_SERVER_URL` — public base URL of the server (also used for OIDC redirect
   callbacks); defaults to `http://localhost:8080`.
+- `AIRBYTE_MCP_ALLOWED_HOSTS` — comma-separated allowed hostnames or `fnmatch`
+  patterns for HTTP `Host` and `Origin` validation. Ports are ignored: an entry
+  may carry one for readability, but matching is on hostname only, so
+  `example.com:8443` also allows `example.com` on any port.
+- `AIRBYTE_MCP_HTTP_HOST` — host interface to bind for the HTTP server (defaults
+  to `0.0.0.0`).
+- `AIRBYTE_MCP_LOG_FORMAT` — `text` (default) leaves the existing console
+  logging untouched; `json` writes one JSON object per line on stdout,
+  including fastmcp and uvicorn logs and Datadog trace-correlation fields.
+  Case-insensitive; any other value fails startup. Field details are
+  documented in `airbyte.mcp.http_main`.
 - `AIRBYTE_MCP_OIDC_CLIENT_ID`, `AIRBYTE_MCP_OIDC_CLIENT_SECRET` — enable
   interactive OIDC (both required).
 - `AIRBYTE_MCP_OIDC_CONFIG_URL` — OIDC discovery URL (required when the client
@@ -218,6 +262,13 @@ set; the interactive path activates once the OIDC client credentials are set.
 - `AIRBYTE_MCP_OIDC_CLIENT_STORAGE_FACTORY` — optional `"package.module:callable"`
   naming a durable OAuth-state store factory for the interactive proxy (defaults
   to in-memory).
+- `AIRBYTE_MCP_SSO_OIDC_CONFIG_URL_TEMPLATE` — optional; enables SSO realm login.
+  The default realm's discovery URL with the realm name replaced by `{realm}`,
+  e.g. `https://cloud.airbyte.com/auth/realms/{realm}/.well-known/openid-configuration`.
+  Requires the interactive OIDC vars above.
+- `AIRBYTE_MCP_SSO_IDP_HINT` — optional identity-provider alias forwarded as
+  Keycloak's `kc_idp_hint` on SSO logins (`default` on Airbyte Cloud), so the
+  realm hands straight off to the customer IdP.
 - `AIRBYTE_MCP_AUTH_JWKS_URI` / `AIRBYTE_MCP_AUTH_JWT_PUBLIC_KEY` — JWKS URL or
   static public key for verifying headless tokens (one activates the verifier).
 - `AIRBYTE_MCP_AUTH_ISSUER` / `AIRBYTE_MCP_AUTH_AUDIENCE` /
@@ -245,6 +296,60 @@ behavior. This server maps the `AIRBYTE_MCP_*` variables into the typed config
 objects consumed by
 [`fastmcp-extensions`](https://github.com/airbytehq/fastmcp-extensions), which
 assembles the verifier(s) and reads no environment variables itself.
+
+## Optional Hosted Tool Intent Observability
+
+Hosted HTTP tracing uses `fastmcp-extensions` tool-call spans for `otel` and
+`datadog-otlp`; export remains dormant without an OTLP endpoint, and
+`DO_NOT_TRACK` also disables it. The optional
+top-level `intent` is enabled by `AIRBYTE_MCP_INTENT_CAPTURE=1`; never include
+credentials, identifiers or data values.
+
+`AIRBYTE_MCP_TRACING_BACKEND` accepts `otel`, `datadog-otlp` or `datadog`.
+Without it, `AIRBYTE_MCP_OTEL_VENDOR=datadog` selects `datadog-otlp`;
+otherwise `DD_LLMOBS_ENABLED=1` or `true` selects `datadog`, with `otel` as default.
+
+`AIRBYTE_MCP_TELEMETRY_HMAC_KEY` is an unpadded base64url-encoded 32-byte key
+for HMAC argument hashes; argument records are HMAC-hashed only for verified
+(authenticated) callers with a valid key, and are otherwise presence-only.
+Records use `airbyte.mcp.arg.<name>` and are copied to LLM Observability
+metadata as `arg.<name>`. The client's `_meta.traceparent` trace ID
+is retained and its parent is dropped. `tools/list` spans and `unknown_tool`
+outcomes are exported.
+
+OTel tool spans include available `analytic_source`, `auth_method`,
+`workspace_id`, `organization_id` and `scope_source` fields. External query tools
+record validated `agent.action` and bounded `agent.entity_type` metadata.
+`datadog-otlp` adds `_dd.ml_obs.metadata` and only intent/action/entity_name to
+Datadog tool Input; raw arguments/results remain excluded. Native `datadog`
+continues to use deployment LLM Observability configuration.
+
+Hosted OTel tracing refuses an existing global provider or pre-instrumented
+`requests`; Segment requests are excluded. URL queries and unrecognized outbound
+routes are redacted. Session identifiers remain digests, and exporter retention
+and deployment-owned HTTP/log tracing follow their existing policies.
+
+## Usage Telemetry
+
+Unless `DO_NOT_TRACK` or `AIRBYTE_OFFLINE_MODE` is set, the server sends anonymous
+usage events to Segment: one per tool call, `Airbyte.MCP.ServerConnected` on each
+`initialize` or `server/discover` handshake, and, on hosted HTTP,
+`Airbyte.MCP.AuthFailed` when supplied credentials are rejected (`401`/`403` on
+the MCP endpoint or an OAuth callback error). Requests that carry no credentials,
+such as the first step of OAuth discovery, are not reported.
+
+Every event carries the same context: `is_hosted_mcp`, `edition` (`cloud` or
+`oss`), `transport`, `auth_method` (`bearer`, `client_credentials` or `none`),
+`session_id`, `application_name`, `mcp_client_name`, `mcp_client_version`,
+`mcp_protocol_version`, `organization_id` and `workspace_id`. Over hosted HTTP,
+`session_id` is the SHA-256 digest of the client-echoed `Mcp-Session-Id`, and client
+info is recovered from the session token minted on `initialize`. Over stdio,
+`session_id` is a random ID for the server process. `X-Airbyte-Application-Name` is
+stripped and lowercased, other characters are replaced with `-`, and the result is
+capped at 128 characters (e.g. `io.airbyte.coral-support-agent`); it is reported as
+`application_name`. Organization
+and workspace IDs come from the MCP config headers or environment and are `null` when
+not configured. Tokens, secrets, tool arguments and results are never sent.
 
 ## Troubleshooting
 
@@ -312,15 +417,15 @@ For issues and questions:
 
 """  # noqa: D415
 
-from airbyte.mcp import agents, cloud, interactive, local, prompts, registry
+from airbyte.mcp import cloud, connector_builder, guidance, interactive, local, registry
 
 
 __all__: list[str] = [
-    "agents",
     "cloud",
+    "connector_builder",
+    "guidance",
     "interactive",
     "local",
-    "prompts",
     "registry",
 ]
 

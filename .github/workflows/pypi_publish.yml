@@ -80,9 +80,9 @@ jobs:
         if: github.event_name == 'release' || (github.event_name == 'workflow_dispatch' && github.event.inputs.publish == 'true')
         uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33 # v1.14.2
 
-  # A publish ships the exact published version to cloud-mcp: a public release
-  # promotes it to production, while a GitHub prerelease or an on-demand
-  # prerelease build only refreshes the preview service.
+  # Every publish ships the exact published version to cloud-mcp. Which
+  # services it deploys to is decided by the routing table in
+  # `deploy_cloud_mcp.yml`, keyed on the `trigger-type` passed here.
   deploy_cloud_mcp:
     name: Deploy Cloud MCP
     needs: publish_to_pypi
@@ -92,7 +92,13 @@ jobs:
     permissions:
       contents: read
     uses: ./.github/workflows/deploy_cloud_mcp.yml
-    secrets: inherit
+    secrets:
+      OCTAVIA_BOT_APP_ID: ${{ secrets.OCTAVIA_BOT_APP_ID }}
+      OCTAVIA_BOT_PRIVATE_KEY: ${{ secrets.OCTAVIA_BOT_PRIVATE_KEY }}
     with:
       pyairbyte-version: ${{ github.event.release.tag_name || github.event.inputs.version_override }}
-      preview: ${{ (github.event_name == 'release' && github.event.release.prerelease != true) && 'false' || 'true' }}
+      # Routing (which services this deploys to) lives in deploy_cloud_mcp.yml.
+      trigger-type: >-
+        ${{ github.event_name == 'workflow_dispatch' && 'pr-prerelease'
+         || contains(github.event.release.tag_name, '-rc.') && 'rc-release'
+         || 'stable-release' }}

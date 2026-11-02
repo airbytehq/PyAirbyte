@@ -6,7 +6,7 @@ that break destinations: type variations, null handling, naming edge cases,
 schema variations, and batch size variations.
 
 Predefined scenarios are always available. Additional scenarios can be
-injected dynamically via the ``custom_scenarios`` config field.
+injected dynamically via the `custom_scenarios` config field.
 
 .. warning::
     This module is experimental and subject to change without notice.
@@ -75,7 +75,7 @@ class SourceSmokeTest(Source):
 
     Generates synthetic data across predefined scenarios that cover
     common destination failure patterns. Supports dynamic injection
-    of additional scenarios via the ``custom_scenarios`` config field.
+    of additional scenarios via the `custom_scenarios` config field.
     """
 
     def spec(
@@ -197,11 +197,11 @@ class SourceSmokeTest(Source):
         """Combine predefined and custom scenarios.
 
         Selection logic:
-        1. Boolean flags control groups: ``all_fast_streams``
+        1. Boolean flags control groups: `all_fast_streams`
            (default true) enables non-high-volume scenarios,
-           ``all_slow_streams`` (default false) enables
+           `all_slow_streams` (default false) enables
            high-volume scenarios.
-        2. ``scenario_filter`` names are unioned with the boolean sets.
+        2. `scenario_filter` names are unioned with the boolean sets.
         3. Custom scenarios are always included.
         4. The final list is deduplicated by name.
         """

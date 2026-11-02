@@ -11,7 +11,10 @@ import responses
 
 from airbyte.cloud.connectors import CheckResult
 from airbyte.cloud.workspaces import CloudWorkspace
-from airbyte.exceptions import AirbyteConnectorCheckTimeoutError
+from airbyte.exceptions import (
+    AirbyteConnectorCheckFailedError,
+    AirbyteConnectorCheckTimeoutError,
+)
 
 
 CONFIG_API_ROOT = "https://cloud.airbyte.com/api/v1"
@@ -134,7 +137,7 @@ def test_check(
     wait: bool,
 ) -> None:
     """Verify Cloud connector checks map asynchronous command results."""
-    monkeypatch.setattr("airbyte.cloud.connectors.time.sleep", lambda _: None)
+    monkeypatch.setattr("airbyte.cloud.models.time.sleep", lambda _: None)
     _register_check_endpoints(statuses, output)
 
     result = (
@@ -156,13 +159,15 @@ def test_check(
 @responses.activate
 def test_check_raises_on_failure(monkeypatch: pytest.MonkeyPatch) -> None:
     """Verify failed checks raise when requested."""
-    monkeypatch.setattr("airbyte.cloud.connectors.time.sleep", lambda _: None)
+    monkeypatch.setattr("airbyte.cloud.models.time.sleep", lambda _: None)
     _register_check_endpoints(
         ["completed"],
         {"id": COMMAND_ID, "status": "failed", "message": "Check failed."},
     )
 
-    with pytest.raises(ValueError, match="Check failed: Failed: Check failed."):
+    with pytest.raises(
+        AirbyteConnectorCheckFailedError, match="Check failed: Failed: Check failed."
+    ):
         _workspace().get_source(CONNECTOR_ID).check()
 
 
@@ -176,7 +181,7 @@ def test_check_result_str_uses_internal_error() -> None:
 @responses.activate
 def test_check_attaches_to_existing_command(monkeypatch: pytest.MonkeyPatch) -> None:
     """Verify checks can attach to a command without starting another."""
-    monkeypatch.setattr("airbyte.cloud.connectors.time.sleep", lambda _: None)
+    monkeypatch.setattr("airbyte.cloud.models.time.sleep", lambda _: None)
     responses.add(
         responses.POST,
         f"{CONFIG_API_ROOT}/commands/status",
@@ -211,7 +216,7 @@ def test_check_attaches_to_existing_command(monkeypatch: pytest.MonkeyPatch) -> 
 @responses.activate
 def test_check_timeout(monkeypatch: pytest.MonkeyPatch) -> None:
     """Verify checks raise a typed timeout error."""
-    monkeypatch.setattr("airbyte.cloud.connectors.time.sleep", lambda _: None)
+    monkeypatch.setattr("airbyte.cloud.models.time.sleep", lambda _: None)
     _register_check_endpoints(["pending"])
 
     with pytest.raises(AirbyteConnectorCheckTimeoutError) as error:
@@ -230,7 +235,7 @@ def test_cancel_skips_log_retrieval(monkeypatch: pytest.MonkeyPatch) -> None:
         f"{CONFIG_API_ROOT}/commands/cancel",
         json={"id": COMMAND_ID},
     )
-    monkeypatch.setattr("airbyte.cloud.connectors.time.sleep", lambda _: None)
+    monkeypatch.setattr("airbyte.cloud.models.time.sleep", lambda _: None)
     result = (
         _workspace()
         .get_source(CONNECTOR_ID)
@@ -258,7 +263,7 @@ def test_get_logs(monkeypatch: pytest.MonkeyPatch) -> None:
             "logs": {"logLines": ["line 1", "line 2"]},
         },
     )
-    monkeypatch.setattr("airbyte.cloud.connectors.time.sleep", lambda _: None)
+    monkeypatch.setattr("airbyte.cloud.models.time.sleep", lambda _: None)
     result = _workspace().get_source(CONNECTOR_ID).check(wait=False)
 
     assert result.get_logs() == ["line 1", "line 2"]
