@@ -18,7 +18,7 @@ from fastmcp.exceptions import ToolError
 
 from airbyte._util import api_util
 from airbyte.cloud.connections import CloudConnection
-from airbyte.cloud.models import StreamConfigOverride
+from airbyte.cloud.models import StreamConfigOverride, StreamConfigUpdateResult
 from airbyte.cloud.workspaces import CloudWorkspace
 from airbyte.constants import (
     MCP_LOCAL_DEMO_MODE_ENV_VAR,
@@ -142,6 +142,24 @@ def test_interval_schema() -> None:
         unsafe = tools["update_connection_unsafe"]
         assert unsafe.annotations is not None
         assert unsafe.annotations.destructive_hint is True
+        for tool_name in ("update_connection", "update_connection_unsafe"):
+            apply_discover = tools[tool_name].input_schema["properties"][
+                "apply_discover_request_id"
+            ]
+            assert apply_discover["default"] is None
+            assert "apply_discover_request_id" not in tools[tool_name].input_schema.get(
+                "required", []
+            )
+            assert "discover_source_catalog" in apply_discover["description"]
+        assert (
+            "update_connection_unsafe"
+            not in tools["update_connection"].input_schema["properties"][
+                "apply_discover_request_id"
+            ]["description"]
+        )
+        assert "apply_discover_request_id" in (
+            cloud_mcp.discover_source_catalog.__doc__ or ""
+        )
         assert "set_cloud_connection_stream_sync_mode" not in tools
 
     asyncio.run(inspect_tools())
@@ -165,6 +183,50 @@ def test_create_manual_default_description() -> None:
     asyncio.run(inspect_tools())
 
 
+@pytest.mark.parametrize(
+    ("unsafe", "expected_allow_unsafe"),
+    [
+        pytest.param(False, False, id="safe-tool"),
+        pytest.param(True, True, id="unsafe-tool"),
+    ],
+)
+def test_apply_discover_request_id_counts_as_a_setting_and_is_forwarded(
+    schedule_backend: tuple[FastMCP, responses.RequestsMock, MagicMock, MagicMock],
+    monkeypatch: pytest.MonkeyPatch,
+    unsafe: bool,
+    expected_allow_unsafe: bool,
+) -> None:
+    result = StreamConfigUpdateResult(
+        updated_streams=[],
+        unsafe_streams=[],
+        reset_streams=[],
+        reset_requested=False,
+        applied_source_catalog_id="source-catalog-id",
+    )
+    update_stream_configs = MagicMock(return_value=result)
+    monkeypatch.setattr(CloudConnection, "update_stream_configs", update_stream_configs)
+    tool = cloud_mcp.update_connection_unsafe if unsafe else cloud_mcp.update_connection
+
+    response = tool(
+        ctx=None,
+        connection_id="12345678-1234-1234-1234-1234567890ab",
+        enabled=None,
+        cron_expression=None,
+        interval_hours=None,
+        manual_schedule=None,
+        override_stream_configs=None,
+        apply_discover_request_id="discover-request-id",
+        workspace_id=None,
+    )
+
+    assert "source-catalog-id" in response
+    update_stream_configs.assert_called_once_with(
+        [],
+        allow_unsafe=expected_allow_unsafe,
+        discover_request_id="discover-request-id",
+    )
+
+
 @pytest.mark.parametrize("interval_hours", [0, -1, True, False, 1.0, 1.5, "24"])
 def test_direct_update_rejects_invalid_intervals_before_status_change(
     schedule_backend: tuple[FastMCP, responses.RequestsMock, MagicMock, MagicMock],
@@ -182,6 +244,7 @@ def test_direct_update_rejects_invalid_intervals_before_status_change(
             cron_expression=None,
             manual_schedule=None,
             override_stream_configs=None,
+            apply_discover_request_id=None,
             workspace_id=None,
         )
 
@@ -481,6 +544,7 @@ def test_unsafe_change_guidance_uses_unsafe_tool_enabled(
                     cursor_field="updated_at",
                 )
             ],
+            apply_discover_request_id=None,
             workspace_id=None,
         )
 

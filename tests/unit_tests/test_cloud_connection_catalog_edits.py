@@ -596,4 +596,27 @@ def test_replace_connection_catalog_forwards_skip_reset(
         skip_reset=False,
     )
 
+    request.assert_called_once()
+    assert "sourceCatalogId" not in request.call_args.kwargs["json"]
     assert request.call_args.kwargs["json"]["skipReset"] is False
+
+
+def test_replace_connection_catalog_forwards_source_catalog_id(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    request = MagicMock(return_value={})
+    monkeypatch.setattr(api_util, "_make_config_api_request", request)
+
+    api_util.replace_connection_catalog(
+        connection_id=_CONNECTION_ID,
+        configured_catalog_dict={"streams": []},
+        api_root=_API_ROOT,
+        config_api_root=_CONFIG_API_ROOT,
+        client_id=None,
+        client_secret=None,
+        bearer_token="token",
+        source_catalog_id="source-catalog-id",
+    )
+
+    request.assert_called_once()
+    assert request.call_args.kwargs["json"]["sourceCatalogId"] == "source-catalog-id"

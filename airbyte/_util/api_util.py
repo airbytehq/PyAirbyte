@@ -4046,7 +4046,7 @@ def get_catalog_diff(
     )
 
 
-def replace_connection_catalog(
+def replace_connection_catalog(  # noqa: PLR0913
     connection_id: str,
     configured_catalog_dict: dict[str, Any],
     *,
@@ -4056,6 +4056,7 @@ def replace_connection_catalog(
     client_secret: SecretString | None,
     bearer_token: SecretString | None,
     skip_reset: bool = True,
+    source_catalog_id: str | None = None,
 ) -> dict[str, Any]:
     """Replace the configured catalog for a connection.
 
@@ -4073,19 +4074,24 @@ def replace_connection_catalog(
         bearer_token: Bearer token for authentication (alternative to client credentials).
         config_api_root: Optional explicit Config API root URL.
         skip_reset: Whether to skip the platform reset of changed streams.
+        source_catalog_id: Optional source catalog ID associated with the update.
 
     Returns:
         Dictionary containing the updated WebBackendConnectionRead response.
     """
+    request_body: dict[str, Any] = {
+        "connectionId": connection_id,
+        "syncCatalog": configured_catalog_dict,
+        # Resets are destructive and cause customer-side data outage.
+        # If a reset is desired, caller will need to decide & manage.
+        "skipReset": skip_reset,
+    }
+    if source_catalog_id is not None:
+        request_body["sourceCatalogId"] = source_catalog_id
+
     return _make_config_api_request(
         path="/web_backend/connections/update",
-        json={
-            "connectionId": connection_id,
-            "syncCatalog": configured_catalog_dict,
-            # Resets are destructive and cause customer-side data outage.
-            # If a reset is desired, caller will need to decide & manage.
-            "skipReset": skip_reset,
-        },
+        json=request_body,
         api_root=api_root,
         config_api_root=config_api_root,
         client_id=client_id,
