@@ -476,6 +476,9 @@ def mcp_tool(  # noqa: PLR0913 - mirrors the upstream decorator's kwargs
 ) -> Callable[[_MCP_TOOL_FUNC], _MCP_TOOL_FUNC]:
     """Decorate an MCP tool with deferred Airbyte registration metadata.
 
+    When `title` is omitted, it is derived from the tool name in sentence case. Pass `title=`
+    only when the derived title reads poorly (acronyms, proper nouns, qualifiers).
+
     When `insiders_only` is true, the tool is hidden unless insiders mode is on
     (`AIRBYTE_MCP_INSIDERS` / `X-MCP-Insiders`). When `force_disabled` is true, the function
     is returned unchanged and never registered.

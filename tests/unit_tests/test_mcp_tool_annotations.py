@@ -34,7 +34,9 @@ def _cloud_tool_entries() -> list[tuple[object, dict]]:
     return [(f, a) for f, a in _REGISTERED_TOOLS if f.__module__ == cloud_mcp.__name__]
 
 
-async def _server_tools_with_expected_names() -> tuple[list[Tool], dict[str, Tool | None]]:
+async def _server_tools_with_expected_names() -> tuple[
+    list[Tool], dict[str, Tool | None]
+]:
     tools = await server_mcp.app.list_tools()
     expected_names = (*TOOL_TITLE_OVERRIDES, "rename_connection")
     tools_by_name = {
