@@ -897,7 +897,8 @@ class SqlProcessorBase(abc.ABC):
         """
         temp_table_name = self._create_table_for_loading(stream_name, batch_id)
         for file_path in files:
-            dataframe = pd.read_json(file_path, lines=True)
+            # Preserve JSON scalar types, including large IDs and leading zeros in strings.
+            dataframe = pd.read_json(file_path, lines=True, dtype=False)
 
             sql_column_definitions: dict[str, TypeEngine] = self._get_sql_column_definitions(
                 stream_name
