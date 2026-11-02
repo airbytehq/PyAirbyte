@@ -2351,6 +2351,7 @@ def get_search_index_status(
 
 
 @mcp_tool(
+    destructive=True,  # Re-running a stream may rewrite existing index entries
     pipeline_change=False,
     external_access=True,
 )
@@ -3324,7 +3325,10 @@ def _get_custom_source_definition_description(
     )
 
 
-@mcp_tool(extra_help_text=_manifest_and_testing_values_hint)
+@mcp_tool(
+    destructive=True,  # testing_values replace existing Builder project testing values
+    extra_help_text=_manifest_and_testing_values_hint,
+)
 def publish_custom_source_definition(  # noqa: PLR0913  # Explicit args mirror MCP tool schema.
     ctx: Context,
     name: Annotated[
