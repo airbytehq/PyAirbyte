@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import asyncio
 
-from fastmcp.tools.tool import Tool
+from fastmcp.tools import Tool
 from fastmcp_extensions.decorators import _REGISTERED_TOOLS  # noqa: PLC2701
 
 from airbyte.mcp import cloud as cloud_mcp
