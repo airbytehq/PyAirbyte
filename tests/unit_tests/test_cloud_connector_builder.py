@@ -539,11 +539,7 @@ def test_replace_testing_values_uses_draft_spec(
 
     kwargs = update_testing_values.call_args.kwargs
     assert kwargs["testing_values"] == {"api_key": "k"}
-    assert kwargs["spec"] == {
-        "documentationUrl": "https://example.com/docs",
-        "connectionSpecification": {"type": "object", "properties": {}},
-        "advancedAuth": None,
-    }
+    assert kwargs["spec"] == {"type": "object", "properties": {}}
 
 
 def test_replace_testing_values_without_draft_uses_published_spec(
@@ -564,7 +560,7 @@ def test_replace_testing_values_without_draft_uses_published_spec(
     project.replace_testing_values({"api_key": "k"})
 
     spec = update_testing_values.call_args.kwargs["spec"]
-    assert spec["connectionSpecification"]["properties"]["api_key"]["airbyte_secret"]
+    assert spec == _secret_manifest()["spec"]["connection_specification"]
 
 
 def test_publish_unpublished_project(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -1853,20 +1849,31 @@ def test_revert_publish_publishes_version(monkeypatch: pytest.MonkeyPatch) -> No
     assert kwargs["description"].startswith("Reverted to version 1 by PyAirbyte at ")
 
 
+@pytest.mark.parametrize("has_draft", [True, False])
 def test_merge_testing_values_keeps_saved_secrets(
     monkeypatch: pytest.MonkeyPatch,
+    *,
+    has_draft: bool,
 ) -> None:
+    manifest = _secret_manifest()
     _patch_project_store(
         monkeypatch,
-        draft=MANIFEST,
+        draft=manifest if has_draft else None,
+        source_definition_id="def",
         testing_values={"api_key": "**********", "region": "us"},
     )
     project = CloudConnectorBuilderProject(
         workspace=_fake_workspace(), builder_project_id="bp"
     )
-    replace = MagicMock()
-    monkeypatch.setattr(project, "replace_testing_values", replace)
+    monkeypatch.setattr(project, "_published_manifest", lambda _id: manifest)
+    update = MagicMock()
+    monkeypatch.setattr(
+        api_util, "update_connector_builder_project_testing_values", update
+    )
 
     project._merge_testing_values({"region": "eu"})
 
-    replace.assert_called_once_with({"api_key": "**********", "region": "eu"})
+    update.assert_called_once()
+    kwargs = update.call_args.kwargs
+    assert kwargs["testing_values"] == {"api_key": "**********", "region": "eu"}
+    assert kwargs["spec"] == manifest["spec"]["connection_specification"]
