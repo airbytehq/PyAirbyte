@@ -4789,14 +4789,10 @@ def discover_source_catalog(
             )
         return _get_cloud_client(ctx).get_catalog_discover_result(discover_request_id)
 
-    if source_id is not None:
-        workspace: CloudWorkspace = _get_cloud_workspace_for_resource(
-            ctx, workspace_id, connector_id=source_id, connector_type=ConnectorType.SOURCE
-        )
-    else:
-        workspace = _get_cloud_workspace(ctx, workspace_id)
-
     assert source_id is not None
+    workspace: CloudWorkspace = _get_cloud_workspace_for_resource(
+        ctx, workspace_id, connector_id=source_id, connector_type=ConnectorType.SOURCE
+    )
     source = workspace.get_source(source_id=source_id)
     if no_refresh:
         return source.get_latest_saved_catalog()
