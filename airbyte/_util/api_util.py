@@ -2421,7 +2421,7 @@ def _make_config_api_request(
                 context=error_context,
             ) from ex
 
-    if response.status_code == HTTPStatus.NO_CONTENT:
+    if response.status_code == HTTPStatus.NO_CONTENT or not response.content:
         return {}
 
     return response.json()
