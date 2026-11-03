@@ -426,7 +426,7 @@ class CloudConnectorBuilderProject:
         )
         if manifest is None:
             manifest = self._require_draft_manifest(project_data)
-        return builder_testing_values_spec(manifest).get("connectionSpecification") or {}
+        return builder_testing_values_spec(manifest)
 
     def _merge_testing_values(
         self,

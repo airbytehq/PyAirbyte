@@ -2421,7 +2421,7 @@ def _make_config_api_request(
                 context=error_context,
             ) from ex
 
-    if response.status_code == HTTPStatus.NO_CONTENT:
+    if response.status_code == HTTPStatus.NO_CONTENT or not response.content:
         return {}
 
     return response.json()
@@ -3215,7 +3215,8 @@ def update_connector_builder_project_testing_values(  # noqa: PLR0913
         builder_project_id: The connector builder project ID
         testing_values: The testing values (config blob) to persist. This replaces
             any existing testing values entirely.
-        spec: The source definition specification (connector spec)
+        spec: The connection JSON schema, with `airbyte_secret` annotations (not a
+            connector-spec object wrapping it in `connectionSpecification`).
         api_root: The API root URL
         client_id: OAuth client ID
         client_secret: OAuth client secret
