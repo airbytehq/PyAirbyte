@@ -654,40 +654,15 @@ def _resolve_resource_workspace_id(
         return None
 
     if connection_id is not None:
-        return api_util.get_connection(
-            connection_id=connection_id,
-            workspace_id=None,
-            api_root=client.public_api_root,
-            client_id=client.client_id,
-            client_secret=client.client_secret,
-            bearer_token=client.bearer_token,
-        ).workspace_id
+        return client.get_connection_workspace_id(connection_id)
 
     assert connector_id is not None
-    if connector_type == ConnectorType.SOURCE:
-        return api_util.get_source(
-            source_id=connector_id,
-            api_root=client.public_api_root,
-            client_id=client.client_id,
-            client_secret=client.client_secret,
-            bearer_token=client.bearer_token,
-        ).workspace_id
-    if connector_type == ConnectorType.DESTINATION:
-        return api_util.get_destination(
-            destination_id=connector_id,
-            api_root=client.public_api_root,
-            client_id=client.client_id,
-            client_secret=client.client_secret,
-            bearer_token=client.bearer_token,
-        ).workspace_id
-    _, connector = api_util.get_connector(
-        connector_id=connector_id,
-        api_root=client.public_api_root,
-        client_id=client.client_id,
-        client_secret=client.client_secret,
-        bearer_token=client.bearer_token,
+    connector_type_value = (
+        cast(Literal["source", "destination"], connector_type.value)
+        if connector_type is not None
+        else None
     )
-    return connector.workspace_id
+    return client.get_connector_workspace_id(connector_id, connector_type_value)
 
 
 def _get_cloud_workspace_for_resource(
@@ -4807,14 +4782,19 @@ def discover_source_catalog(
             message="Provide `source_id` or `discover_request_id`.",
         )
 
+    if discover_request_id is not None:
+        if workspace_id:
+            return _get_cloud_workspace(ctx, workspace_id).get_catalog_discover_result(
+                discover_request_id
+            )
+        return _get_cloud_client(ctx).get_catalog_discover_result(discover_request_id)
+
     if source_id is not None:
         workspace: CloudWorkspace = _get_cloud_workspace_for_resource(
             ctx, workspace_id, connector_id=source_id, connector_type=ConnectorType.SOURCE
         )
     else:
         workspace = _get_cloud_workspace(ctx, workspace_id)
-    if discover_request_id is not None:
-        return workspace.get_catalog_discover_result(discover_request_id)
 
     assert source_id is not None
     source = workspace.get_source(source_id=source_id)
