@@ -955,9 +955,9 @@ def get_source_stream_names(
 
 
 def get_connection(
-    workspace_id: str,
     connection_id: str,
     *,
+    workspace_id: str | None = None,
     api_root: str,
     client_id: SecretString | None,
     client_secret: SecretString | None,

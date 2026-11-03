@@ -8,6 +8,7 @@ came from:
 - `header`: the `X-Airbyte-Workspace-Id` / `X-Airbyte-Organization-Id` header, or the
   matching environment variable on stdio.
 - `default`: the caller's default workspace, resolved by the tool itself.
+- `resource`: the workspace that owns the resource ID the tool was given, when the call named none.
 - `user_default`: for calls that name no workspace or organization, by ID or by name, the
   organization of the authenticated user's default workspace. `workspace_id` stays null.
 - `resolved`: the organization selected by the tool when no ID was supplied.
@@ -44,7 +45,7 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-ScopeSource = Literal["arg", "header", "default", "user_default", "resolved"]
+ScopeSource = Literal["arg", "header", "default", "resource", "user_default", "resolved"]
 
 _NAME_SELECTOR_ARGS = ("workspace_name", "organization_name")
 """Tool arguments that select a workspace or organization by name rather than ID."""
@@ -145,6 +146,15 @@ def record_default_workspace(workspace_id: str | None) -> None:
     if scope is not None and scope.workspace_source is None and value is not None:
         scope.workspace_id = value
         scope.workspace_source = "default"
+
+
+def record_resource_workspace(workspace_id: str | None) -> None:
+    """Record the workspace that owns a resource named in the call."""
+    scope = _CALL_SCOPE.get()
+    value = _as_uuid(workspace_id)
+    if scope is not None and scope.workspace_source is None and value is not None:
+        scope.workspace_id = value
+        scope.workspace_source = "resource"
 
 
 def record_resolved_organization(

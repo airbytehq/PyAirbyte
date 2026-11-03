@@ -35,10 +35,11 @@ from airbyte.mcp._docs_results import (
 )
 from airbyte.mcp._tool_utils import mcp_tool
 from airbyte.mcp.cloud import (
+    RESOURCE_WORKSPACE_ID_TIP_TEXT,
     SKILL_DOCS_SECTION_HINT,
-    WORKSPACE_ID_TIP_TEXT,
     _direct_access_disabled_message,
     _get_cloud_workspace,
+    _get_cloud_workspace_for_resource,
 )
 from airbyte.registry import (
     _DEFAULT_MANIFEST_URL,
@@ -220,7 +221,7 @@ def get_external_access_skill_docs(
     workspace_id: Annotated[
         str | None,
         Field(
-            description=WORKSPACE_ID_TIP_TEXT,
+            description=RESOURCE_WORKSPACE_ID_TIP_TEXT,
             default=None,
         ),
         TraceArg.OMIT,
@@ -241,7 +242,12 @@ def get_external_access_skill_docs(
     When direct access is disabled for the connector, `errors` holds a message with an
     enablement link to show the user.
     """
-    workspace: CloudWorkspace = _get_cloud_workspace(ctx, workspace_id)
+    if connector_id is not None:
+        workspace: CloudWorkspace = _get_cloud_workspace_for_resource(
+            ctx, workspace_id, connector_id=connector_id
+        )
+    else:
+        workspace = _get_cloud_workspace(ctx, workspace_id)
     try:
         docs = workspace.get_agent_skill_docs(
             docs_skill_id, connector_id=connector_id, section=section

@@ -362,6 +362,9 @@ def test_discover_tool_starts_new_discovery_by_default(
     workspace.get_source.return_value = source
     lookup = MagicMock(return_value=workspace)
     monkeypatch.setattr(cloud_mcp, "_get_cloud_workspace", lookup)
+    monkeypatch.setattr(
+        cloud_mcp, "_resolve_resource_workspace_id", lambda *_args, **_kwargs: None
+    )
 
     result = asyncio.run(_call_tool(_server(), {"source_id": _SOURCE_ID}))
 
@@ -384,6 +387,9 @@ def test_discover_tool_returns_latest_saved_catalog_when_no_refresh_is_true(
     workspace.get_source.return_value = source
     monkeypatch.setattr(
         cloud_mcp, "_get_cloud_workspace", MagicMock(return_value=workspace)
+    )
+    monkeypatch.setattr(
+        cloud_mcp, "_resolve_resource_workspace_id", lambda *_args, **_kwargs: None
     )
 
     result = asyncio.run(
@@ -458,6 +464,9 @@ def test_discover_tool_compares_catalogs(
     )
     monkeypatch.setattr(
         cloud_mcp, "_get_cloud_workspace", MagicMock(return_value=workspace)
+    )
+    monkeypatch.setattr(
+        cloud_mcp, "_resolve_resource_workspace_id", lambda *_args, **_kwargs: None
     )
 
     result = asyncio.run(_call_tool(_server(), arguments))
