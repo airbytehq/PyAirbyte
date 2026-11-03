@@ -1867,7 +1867,9 @@ def test_merge_testing_values_keeps_saved_secrets(
     )
     monkeypatch.setattr(project, "_published_manifest", lambda _id: manifest)
     update = MagicMock()
-    monkeypatch.setattr(api_util, "update_connector_builder_project_testing_values", update)
+    monkeypatch.setattr(
+        api_util, "update_connector_builder_project_testing_values", update
+    )
 
     project._merge_testing_values({"region": "eu"})
 

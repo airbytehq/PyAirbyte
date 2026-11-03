@@ -2120,6 +2120,7 @@ def test_config_api_request_parses_nonempty_response(
         "path": "/declarative_source_definitions/create_manifest",
         "json": {},
         "api_root": "https://api.example/v1",
+        "config_api_root": "https://config.example/v1",
         "client_id": None,
         "client_secret": None,
         "bearer_token": SecretString("token"),
