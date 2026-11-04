@@ -42,6 +42,7 @@ from airbyte.exceptions import (
     AirbytePipelineChangesDisabledError,
     AirbyteReadOnlyModeError,
     AirbyteUnsafeStreamConfigChangeError,
+    AirbyteWorkspaceMismatchError,
 )
 
 
@@ -95,6 +96,7 @@ MCP_TOOL_USER_FACING_ERRORS: tuple[type[AirbyteLibError], ...] = (
     AirbyteConnectorNotReadyError,
     AirbyteConnectorInUseError,
     AirbyteMissingResourceError,
+    AirbyteWorkspaceMismatchError,
 )
 """Expected errors returned to MCP clients as concise message and guidance text."""
 
