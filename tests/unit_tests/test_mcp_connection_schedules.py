@@ -68,6 +68,9 @@ def schedule_backend(
     lookup = MagicMock(return_value=workspace)
     monkeypatch.setattr(cloud_mcp, "_get_cloud_workspace", lookup)
     monkeypatch.setattr(
+        cloud_mcp, "_resolve_resource_workspace_id", lambda *_args, **_kwargs: None
+    )
+    monkeypatch.setattr(
         api_util, "get_connection", MagicMock(return_value=_connection_response())
     )
     patch = MagicMock(return_value=_connection_response())

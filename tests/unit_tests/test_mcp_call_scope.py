@@ -217,6 +217,45 @@ def test_default_workspace_recorded_from_a_sync_tool_thread(
     lookup.assert_not_called()
 
 
+def test_resource_workspace_recorded_from_a_sync_tool_thread(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    app = FastMCP("resource-scope-test")
+    seen: list[dict[str, str | None]] = []
+    lookup = AsyncMock()
+    monkeypatch.setattr(_scope, "resolve_call_workspace_organization_id", lookup)
+
+    class _Capture(Middleware):
+        async def on_call_tool(self, context, call_next):  # noqa: ANN001, ANN202
+            try:
+                return await call_next(context)
+            finally:
+                await _scope.enrich_call_scope(None)
+                seen.append(_scope.call_scope_properties())
+
+    app.add_middleware(_scope.CallScopeMiddleware())
+    app.add_middleware(_Capture())
+
+    @app.tool
+    def sync_tool() -> str:
+        _scope.record_resource_workspace(WORKSPACE)
+        return "ok"
+
+    async def run() -> None:
+        async with Client(app) as client:
+            await client.call_tool("sync_tool", {})
+
+    asyncio.run(run())
+    assert seen == [
+        {
+            "workspace_id": WORKSPACE,
+            "organization_id": None,
+            "scope_source": "resource",
+        }
+    ]
+    lookup.assert_awaited_once_with(WORKSPACE, None)
+
+
 @pytest.mark.parametrize(
     "workspace,organization,existing",
     [

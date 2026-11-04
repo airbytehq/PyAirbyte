@@ -114,6 +114,7 @@ if TYPE_CHECKING:
 
     from airbyte.cloud.connections import CloudConnection
     from airbyte.cloud.workspaces import CloudWorkspace
+    from airbyte.secrets.base import SecretString
 
 
 _MAX_SEARCH_LIMIT = 100
@@ -136,10 +137,15 @@ _GENERIC_CONFLICT_MESSAGES = frozenset(
 
 
 def _get_catalog_discover_result(
-    workspace: CloudWorkspace,
+    *,
     discover_request_id: str,
+    api_root: str,
+    config_api_root: str | None,
+    client_id: SecretString | None,
+    client_secret: SecretString | None,
+    bearer_token: SecretString | None,
 ) -> CloudSourceCatalogDiscoverResult:
-    """Get a source-discover result using a workspace's Config API credentials."""
+    """Get a source-discover result using Config API credentials."""
     if not isinstance(discover_request_id, str) or not discover_request_id.strip():
         raise exc.AirbyteLibInputError(
             message="`discover_request_id` must be a non-empty string.",
@@ -148,11 +154,11 @@ def _get_catalog_discover_result(
 
     command_status = api_util.get_command_status(
         discover_request_id,
-        api_root=workspace.api_root,
-        config_api_root=workspace.config_api_root,
-        client_id=workspace.client_id,
-        client_secret=workspace.client_secret,
-        bearer_token=workspace.bearer_token,
+        api_root=api_root,
+        config_api_root=config_api_root,
+        client_id=client_id,
+        client_secret=client_secret,
+        bearer_token=bearer_token,
     )
     request_status = command_status["status"]
     if request_status != "completed":
@@ -163,11 +169,11 @@ def _get_catalog_discover_result(
 
     output = api_util.get_discover_command_output(
         discover_request_id,
-        api_root=workspace.api_root,
-        config_api_root=workspace.config_api_root,
-        client_id=workspace.client_id,
-        client_secret=workspace.client_secret,
-        bearer_token=workspace.bearer_token,
+        api_root=api_root,
+        config_api_root=config_api_root,
+        client_id=client_id,
+        client_secret=client_secret,
+        bearer_token=bearer_token,
     )
     failure = output.get("failureReason")
     failure_reason = failure.get("externalMessage") if isinstance(failure, dict) else None
@@ -1226,8 +1232,12 @@ class CloudSource(CloudConnector):
     ) -> CloudSourceCatalogDiscoverResult:
         """Get the status and completed output of a source catalog discover."""
         result = _get_catalog_discover_result(
-            workspace=self.workspace,
             discover_request_id=discover_request_id,
+            api_root=self.workspace.api_root,
+            config_api_root=self.workspace.config_api_root,
+            client_id=self.workspace.client_id,
+            client_secret=self.workspace.client_secret,
+            bearer_token=self.workspace.bearer_token,
         )
         return result.model_copy(update={"source_id": self.source_id})
 

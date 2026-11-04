@@ -955,9 +955,9 @@ def get_source_stream_names(
 
 
 def get_connection(
-    workspace_id: str,
     connection_id: str,
     *,
+    workspace_id: str | None = None,
     api_root: str,
     client_id: SecretString | None,
     client_secret: SecretString | None,
@@ -2421,7 +2421,7 @@ def _make_config_api_request(
                 context=error_context,
             ) from ex
 
-    if response.status_code == HTTPStatus.NO_CONTENT:
+    if response.status_code == HTTPStatus.NO_CONTENT or not response.content:
         return {}
 
     return response.json()

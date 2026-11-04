@@ -521,8 +521,12 @@ class CloudWorkspace:
     ) -> cloud_connectors.CloudSourceCatalogDiscoverResult:
         """Get the status and completed output for a discover request ID."""
         return cloud_connectors._get_catalog_discover_result(  # noqa: SLF001
-            workspace=self,
             discover_request_id=discover_request_id,
+            api_root=self.api_root,
+            config_api_root=self.config_api_root,
+            client_id=self.client_id,
+            client_secret=self.client_secret,
+            bearer_token=self.bearer_token,
         )
 
     def compare_source_catalogs(
