@@ -159,8 +159,8 @@ jobs:
         else
           body="Evals run ended ($conclusion) before producing results. [summary]($RUN_URL)"
         fi
-        comparison=$(jq -r --arg conclusion "$conclusion" '
-          if any(.[]; .name | endswith("-base")) then
+        comparison=$(jq -r --arg conclusion "$conclusion" --arg results "$results" '
+          if $results != "" and any(.[]; .name | endswith("-base")) then
             if $conclusion == "success" then " · no regression vs base"
             elif $conclusion == "failure" then " · regressed vs base (see summary)"
             else " · comparison ended (\($conclusion); see summary)"
