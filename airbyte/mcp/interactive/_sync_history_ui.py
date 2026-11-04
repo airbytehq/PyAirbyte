@@ -29,7 +29,10 @@ from prefab_ui.components.charts import BarChart, ChartSeries, LineChart
 from pydantic import Field
 
 from airbyte.mcp._tool_utils import mcp_tool
-from airbyte.mcp.cloud import WORKSPACE_ID_TIP_TEXT, _get_cloud_workspace
+from airbyte.mcp.cloud import (
+    RESOURCE_WORKSPACE_ID_TIP_TEXT,
+    _get_cloud_workspace_for_resource,
+)
 
 
 if TYPE_CHECKING:
@@ -88,7 +91,7 @@ def show_connection_sync_history(  # noqa: PLR0914
     workspace_id: Annotated[
         str | None,
         Field(
-            description=WORKSPACE_ID_TIP_TEXT,
+            description=RESOURCE_WORKSPACE_ID_TIP_TEXT,
             default=None,
         ),
         TraceArg.OMIT,
@@ -135,7 +138,9 @@ def show_connection_sync_history(  # noqa: PLR0914
     charts (success/fail by date, records over time, bytes over time), and
     a detailed job history table.
     """
-    workspace: CloudWorkspace = _get_cloud_workspace(ctx, workspace_id)
+    workspace: CloudWorkspace = _get_cloud_workspace_for_resource(
+        ctx, workspace_id, connection_id=connection_id
+    )
     connection = workspace.get_connection(connection_id=connection_id)
     resolved_name = connection.name or connection_id
     job_history_url = connection.job_history_url

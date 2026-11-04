@@ -950,6 +950,9 @@ def test_permanently_delete_cloud_connector_surfaces_library_behavior(
         **{deleter: delete},
     )
     monkeypatch.setattr(cloud_mcp, "_get_cloud_workspace", lambda *_args: workspace)
+    monkeypatch.setattr(
+        cloud_mcp, "_resolve_resource_workspace_id", lambda *_args, **_kwargs: None
+    )
     monkeypatch.setattr(cloud_mcp, "check_guid_created_in_session", lambda _: None)
     monkeypatch.setattr(cloud_mcp, "delete_guard_disabled", lambda _: False)
 
@@ -1006,6 +1009,9 @@ def test_permanently_delete_cloud_connector_respects_delete_guard_setting(
         permanently_delete_source=delete,
     )
     monkeypatch.setattr(cloud_mcp, "_get_cloud_workspace", lambda *_args: workspace)
+    monkeypatch.setattr(
+        cloud_mcp, "_resolve_resource_workspace_id", lambda *_args, **_kwargs: None
+    )
     monkeypatch.setattr(cloud_mcp, "check_guid_created_in_session", lambda _: None)
 
     result = cloud_mcp.permanently_delete_connector(
@@ -1058,6 +1064,9 @@ def _patch_sync_status_workspace(
         get_connection=lambda **_: connection,
     )
     monkeypatch.setattr(cloud_mcp, "_get_cloud_workspace", lambda *_args: workspace)
+    monkeypatch.setattr(
+        cloud_mcp, "_resolve_resource_workspace_id", lambda *_args, **_kwargs: None
+    )
     return workspace
 
 
@@ -1241,6 +1250,9 @@ def test_set_cloud_connection_selected_streams_surfaces_library_error(
     )
     workspace = SimpleNamespace(get_connection=lambda **_: connection)
     monkeypatch.setattr(cloud_mcp, "_get_cloud_workspace", lambda *_args: workspace)
+    monkeypatch.setattr(
+        cloud_mcp, "_resolve_resource_workspace_id", lambda *_args, **_kwargs: None
+    )
     monkeypatch.setattr(cloud_mcp, "check_guid_created_in_session", lambda _: None)
 
     with pytest.raises(AirbyteLibInputError) as exc_info:
@@ -1571,6 +1583,9 @@ def _patch_deploy_connection_workspace(
 ) -> _DeployConnectionWorkspace:
     workspace = _DeployConnectionWorkspace(missing_ids=missing_ids)
     monkeypatch.setattr(cloud_mcp, "_get_cloud_workspace", lambda *_: workspace)
+    monkeypatch.setattr(
+        cloud_mcp, "_resolve_resource_workspace_id", lambda *_args, **_kwargs: None
+    )
     monkeypatch.setattr(
         cloud_mcp, "register_guid_created_in_session", lambda *args: None
     )
@@ -2005,7 +2020,10 @@ def test_get_external_access_skill_docs_tool_connector_id(
         )[1]
     )
     monkeypatch.setattr(
-        guidance_mcp, "_get_cloud_workspace", lambda _ctx, _id: workspace
+        cloud_mcp, "_resolve_resource_workspace_id", lambda *_args, **_kwargs: None
+    )
+    monkeypatch.setattr(
+        cloud_mcp, "_get_cloud_workspace", lambda _ctx, _id=None: workspace
     )
 
     result = guidance_mcp.get_external_access_skill_docs(
@@ -2103,7 +2121,12 @@ def _execute_workspace(
     """Patch `_get_cloud_workspace` to return a workspace serving `connector`."""
     get_connector = MagicMock(return_value=connector)
     workspace = SimpleNamespace(get_connector=get_connector)
-    monkeypatch.setattr(cloud_mcp, "_get_cloud_workspace", lambda _ctx, _id: workspace)
+    monkeypatch.setattr(
+        cloud_mcp, "_get_cloud_workspace", lambda _ctx, _id=None: workspace
+    )
+    monkeypatch.setattr(
+        cloud_mcp, "_resolve_resource_workspace_id", lambda *_args, **_kwargs: None
+    )
     return workspace
 
 
@@ -2559,7 +2582,12 @@ def test_search_tools_use_connector_type_without_probe(
         get_connector=MagicMock(side_effect=AssertionError("unexpected kind probe")),
         **{getter: typed_getter},
     )
-    monkeypatch.setattr(cloud_mcp, "_get_cloud_workspace", lambda _ctx, _id: workspace)
+    monkeypatch.setattr(
+        cloud_mcp, "_get_cloud_workspace", lambda _ctx, _id=None: workspace
+    )
+    monkeypatch.setattr(
+        cloud_mcp, "_resolve_resource_workspace_id", lambda *_args, **_kwargs: None
+    )
 
     cloud_mcp.execute_external_search_query(
         None,
@@ -3122,6 +3150,9 @@ def test_describe_connection_includes_status_and_schedule(
     )
     workspace = SimpleNamespace(get_connection=lambda **_: connection)
     monkeypatch.setattr(cloud_mcp, "_get_cloud_workspace", lambda *_args: workspace)
+    monkeypatch.setattr(
+        cloud_mcp, "_resolve_resource_workspace_id", lambda *_args, **_kwargs: None
+    )
 
     result = cloud_mcp.describe_connection(
         cast(Context, object()),
@@ -3666,7 +3697,12 @@ def _backfill_workspace(monkeypatch: pytest.MonkeyPatch) -> SimpleNamespace:
         ExternalSearchBackfillRequestResult(streams=[])
     )
     workspace = SimpleNamespace(get_connection=MagicMock(return_value=connection))
-    monkeypatch.setattr(cloud_mcp, "_get_cloud_workspace", lambda _ctx, _id: workspace)
+    monkeypatch.setattr(
+        cloud_mcp, "_get_cloud_workspace", lambda _ctx, _id=None: workspace
+    )
+    monkeypatch.setattr(
+        cloud_mcp, "_resolve_resource_workspace_id", lambda *_args, **_kwargs: None
+    )
     return workspace
 
 

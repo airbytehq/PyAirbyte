@@ -43,6 +43,16 @@ def _source(source_id: str = _SOURCE_ID) -> CloudSource:
     return CloudSource(workspace=_workspace(), connector_id=source_id)
 
 
+def _discover_result_api_kwargs(workspace: CloudWorkspace) -> dict[str, object]:
+    return {
+        "api_root": workspace.api_root,
+        "config_api_root": workspace.config_api_root,
+        "client_id": workspace.client_id,
+        "client_secret": workspace.client_secret,
+        "bearer_token": workspace.bearer_token,
+    }
+
+
 def _server() -> FastMCP:
     server = FastMCP("source-catalog-discovery-tests")
     cloud_mcp.register_cloud_tools(server)
@@ -90,36 +100,40 @@ def test_get_catalog_discover_result_returns_noncompleted_status(
     monkeypatch.setattr(api_util, "get_command_status", status)
     monkeypatch.setattr(api_util, "get_discover_command_output", output)
 
-    result = _source().get_catalog_discover_result(_REQUEST_ID)
+    source = _source()
+    result = source.get_catalog_discover_result(_REQUEST_ID)
 
     assert result.source_id == _SOURCE_ID
     assert result.discover_request_id == _REQUEST_ID
     assert result.request_status == request_status
     assert result.outcome is None
+    status.assert_called_once_with(
+        _REQUEST_ID,
+        **_discover_result_api_kwargs(source.workspace),
+    )
     output.assert_not_called()
 
 
 def test_get_catalog_discover_result_returns_success_summary(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    status = MagicMock(return_value={"status": "completed"})
+    output = MagicMock(
+        return_value={
+            "status": "succeeded",
+            "catalogId": "catalog-id",
+            "catalog": {"streams": [{}, {}, {}]},
+        }
+    )
     monkeypatch.setattr(
         api_util,
         "get_command_status",
-        MagicMock(return_value={"status": "completed"}),
+        status,
     )
-    monkeypatch.setattr(
-        api_util,
-        "get_discover_command_output",
-        MagicMock(
-            return_value={
-                "status": "succeeded",
-                "catalogId": "catalog-id",
-                "catalog": {"streams": [{}, {}, {}]},
-            }
-        ),
-    )
+    monkeypatch.setattr(api_util, "get_discover_command_output", output)
 
-    result = _source().get_catalog_discover_result(_REQUEST_ID)
+    source = _source()
+    result = source.get_catalog_discover_result(_REQUEST_ID)
 
     assert result.request_status == "completed"
     assert result.outcome == "succeeded"
@@ -127,48 +141,56 @@ def test_get_catalog_discover_result_returns_success_summary(
     assert result.stream_count == 3
     assert result.failure_reason is None
     assert "catalog" not in result.model_dump()
+    expected_api_kwargs = _discover_result_api_kwargs(source.workspace)
+    status.assert_called_once_with(_REQUEST_ID, **expected_api_kwargs)
+    output.assert_called_once_with(_REQUEST_ID, **expected_api_kwargs)
 
 
 def test_get_catalog_discover_result_exposes_external_failure_message(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    status = MagicMock(return_value={"status": "completed"})
+    output = MagicMock(
+        return_value={
+            "status": "failed",
+            "failureReason": {
+                "externalMessage": "The source could not be read.",
+                "internalMessage": "internal diagnostic",
+            },
+        }
+    )
     monkeypatch.setattr(
         api_util,
         "get_command_status",
-        MagicMock(return_value={"status": "completed"}),
+        status,
     )
-    monkeypatch.setattr(
-        api_util,
-        "get_discover_command_output",
-        MagicMock(
-            return_value={
-                "status": "failed",
-                "failureReason": {
-                    "externalMessage": "The source could not be read.",
-                    "internalMessage": "internal diagnostic",
-                },
-            }
-        ),
-    )
+    monkeypatch.setattr(api_util, "get_discover_command_output", output)
 
-    result = _source().get_catalog_discover_result(_REQUEST_ID)
+    source = _source()
+    result = source.get_catalog_discover_result(_REQUEST_ID)
 
     assert result.outcome == "failed"
     assert result.failure_reason == "The source could not be read."
     assert "internal" not in result.model_dump_json()
+    expected_api_kwargs = _discover_result_api_kwargs(source.workspace)
+    status.assert_called_once_with(_REQUEST_ID, **expected_api_kwargs)
+    output.assert_called_once_with(_REQUEST_ID, **expected_api_kwargs)
 
 
 def test_get_catalog_discover_result_propagates_unknown_request_error(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr(
-        api_util,
-        "get_command_status",
-        MagicMock(side_effect=AirbyteCloudError(message="Unknown request ID.")),
-    )
+    status = MagicMock(side_effect=AirbyteCloudError(message="Unknown request ID."))
+    monkeypatch.setattr(api_util, "get_command_status", status)
+    source = _source()
 
     with pytest.raises(AirbyteCloudError, match="Unknown request ID"):
-        _source().get_catalog_discover_result(_REQUEST_ID)
+        source.get_catalog_discover_result(_REQUEST_ID)
+
+    status.assert_called_once_with(
+        _REQUEST_ID,
+        **_discover_result_api_kwargs(source.workspace),
+    )
 
 
 def test_get_catalog_discover_result_rejects_empty_request_id() -> None:
@@ -362,6 +384,9 @@ def test_discover_tool_starts_new_discovery_by_default(
     workspace.get_source.return_value = source
     lookup = MagicMock(return_value=workspace)
     monkeypatch.setattr(cloud_mcp, "_get_cloud_workspace", lookup)
+    monkeypatch.setattr(
+        cloud_mcp, "_resolve_resource_workspace_id", lambda *_args, **_kwargs: None
+    )
 
     result = asyncio.run(_call_tool(_server(), {"source_id": _SOURCE_ID}))
 
@@ -385,6 +410,9 @@ def test_discover_tool_returns_latest_saved_catalog_when_no_refresh_is_true(
     monkeypatch.setattr(
         cloud_mcp, "_get_cloud_workspace", MagicMock(return_value=workspace)
     )
+    monkeypatch.setattr(
+        cloud_mcp, "_resolve_resource_workspace_id", lambda *_args, **_kwargs: None
+    )
 
     result = asyncio.run(
         _call_tool(_server(), {"source_id": _SOURCE_ID, "no_refresh": True})
@@ -399,21 +427,24 @@ def test_discover_tool_returns_latest_saved_catalog_when_no_refresh_is_true(
 def test_discover_tool_retrieves_result_by_request_id(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    workspace = MagicMock()
-    workspace.get_catalog_discover_result.return_value = (
-        CloudSourceCatalogDiscoverResult(
-            discover_request_id=_REQUEST_ID,
-            request_status="running",
-        )
+    client = MagicMock()
+    client.get_catalog_discover_result.return_value = CloudSourceCatalogDiscoverResult(
+        discover_request_id=_REQUEST_ID,
+        request_status="running",
     )
-    lookup = MagicMock(return_value=workspace)
-    monkeypatch.setattr(cloud_mcp, "_get_cloud_workspace", lookup)
+    lookup = MagicMock(return_value=client)
+    get_workspace = MagicMock(
+        side_effect=AssertionError("workspace should not be needed")
+    )
+    monkeypatch.setattr(cloud_mcp, "_get_cloud_client", lookup)
+    monkeypatch.setattr(cloud_mcp, "_get_cloud_workspace", get_workspace)
 
     result = asyncio.run(_call_tool(_server(), {"discover_request_id": _REQUEST_ID}))
 
     assert result.structured_content["request_status"] == "running"
-    workspace.get_catalog_discover_result.assert_called_once_with(_REQUEST_ID)
-    workspace.get_source.assert_not_called()
+    lookup.assert_called_once()
+    client.get_catalog_discover_result.assert_called_once_with(_REQUEST_ID)
+    get_workspace.assert_not_called()
 
 
 @pytest.mark.parametrize(
@@ -458,6 +489,9 @@ def test_discover_tool_compares_catalogs(
     )
     monkeypatch.setattr(
         cloud_mcp, "_get_cloud_workspace", MagicMock(return_value=workspace)
+    )
+    monkeypatch.setattr(
+        cloud_mcp, "_resolve_resource_workspace_id", lambda *_args, **_kwargs: None
     )
 
     result = asyncio.run(_call_tool(_server(), arguments))

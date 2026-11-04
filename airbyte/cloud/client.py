@@ -81,11 +81,13 @@ from typing import TYPE_CHECKING, Any, Literal, NoReturn, overload
 
 from airbyte import exceptions as exc
 from airbyte._util import api_util
+from airbyte.cloud import connectors as cloud_connectors
 from airbyte.cloud._credentials import _AirbyteCredentials
 from airbyte.cloud.models import (
     CloudDefaultContextInfo,
     CloudDefaultWorkspaceUpdateInfo,
     CloudOrganizationInfo,
+    CloudSourceCatalogDiscoverResult,
     CloudWorkspaceInfo,
     OrganizationFeature,
     WorkspacePrivilegeScope,
@@ -113,7 +115,7 @@ def _organization_has_feature(
     return organization.is_feature_enabled(feature)
 
 
-@dataclass(init=False, kw_only=True)
+@dataclass(init=False, kw_only=True)  # noqa: PLR0904
 class CloudClient:
     """Authenticated client for Airbyte Cloud and self-managed Airbyte APIs."""
 
@@ -635,6 +637,66 @@ class CloudClient:
             return self._get_workspace_parent_organization_id(workspace_id)
         except (exc.AirbyteCloudError, exc.AirbyteLibInputError):
             return None
+
+    def get_connection_workspace_id(self, connection_id: str) -> str:
+        """Return the ID of the workspace that owns a connection."""
+        return api_util.get_connection(
+            connection_id=connection_id,
+            api_root=self.public_api_root,
+            client_id=self.client_id,
+            client_secret=self.client_secret,
+            bearer_token=self.bearer_token,
+        ).workspace_id
+
+    def get_connector_workspace_id(
+        self,
+        connector_id: str,
+        connector_type: Literal["source", "destination"] | None = None,
+    ) -> str:
+        """Return the ID of the workspace that owns a source or destination.
+
+        When `connector_type` is omitted, the source endpoint is tried before the
+        destination endpoint.
+        """
+        if connector_type == "source":
+            return api_util.get_source(
+                source_id=connector_id,
+                api_root=self.public_api_root,
+                client_id=self.client_id,
+                client_secret=self.client_secret,
+                bearer_token=self.bearer_token,
+            ).workspace_id
+        if connector_type == "destination":
+            return api_util.get_destination(
+                destination_id=connector_id,
+                api_root=self.public_api_root,
+                client_id=self.client_id,
+                client_secret=self.client_secret,
+                bearer_token=self.bearer_token,
+            ).workspace_id
+
+        _, connector = api_util.get_connector(
+            connector_id=connector_id,
+            api_root=self.public_api_root,
+            client_id=self.client_id,
+            client_secret=self.client_secret,
+            bearer_token=self.bearer_token,
+        )
+        return connector.workspace_id
+
+    def get_catalog_discover_result(
+        self,
+        discover_request_id: str,
+    ) -> CloudSourceCatalogDiscoverResult:
+        """Get the status and completed output for a discover request ID; no workspace is needed."""
+        return cloud_connectors._get_catalog_discover_result(  # noqa: SLF001
+            discover_request_id=discover_request_id,
+            api_root=self.public_api_root,
+            config_api_root=self.config_api_root,
+            client_id=self.client_id,
+            client_secret=self.client_secret,
+            bearer_token=self.bearer_token,
+        )
 
     def _get_authenticated_user_info(self) -> dict[str, Any]:
         """Get and cache the Airbyte user record for the current credentials."""
