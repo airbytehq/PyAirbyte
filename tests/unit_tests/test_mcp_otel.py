@@ -30,7 +30,7 @@ from opentelemetry.trace import SpanKind
 from opentelemetry.util.types import AttributeValue
 
 from airbyte._util import meta
-from airbyte.exceptions import AirbyteConnectionSyncError
+from airbyte.exceptions import AirbyteConnectionSyncError, AirbyteWorkspaceMismatchError
 from airbyte.constants import CLOUD_API_ROOT
 from airbyte.mcp import _otel as observability
 from airbyte.mcp._error_handling import (
@@ -601,6 +601,16 @@ _ERROR_CASES: dict[str, tuple[Exception | None, Exception]] = {
         None,
         AirbyteConnectionSyncError(connection_id="c", job_id=1, job_status="failed"),
     ),
+    "workspace_mismatch": (
+        None,
+        AirbyteWorkspaceMismatchError(
+            resource_type="connection",
+            resource_id="c",
+            expected_workspace_id="w1",
+            actual_workspace_id="w2",
+            message="Connection 'c' belongs to workspace 'w2', not 'w1'.",
+        ),
+    ),
     "runtime": (None, RuntimeError("boom with SECRET-ARG-VALUE")),
 }
 
@@ -674,6 +684,14 @@ _ERROR_CASES: dict[str, tuple[Exception | None, Exception]] = {
                 "airbyte.mcp.error.fault": "upstream",
             },
             id="sync-failed",
+        ),
+        pytest.param(
+            "workspace_mismatch",
+            {
+                "airbyte.mcp.error.category": "user_error",
+                "airbyte.mcp.error.fault": "caller",
+            },
+            id="workspace-mismatch",
         ),
         pytest.param(
             "runtime",

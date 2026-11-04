@@ -23,6 +23,7 @@ from airbyte.exceptions import (
     AirbyteLibError,
     AirbyteLibInputError,
     AirbyteUnsafeStreamConfigChangeError,
+    AirbyteWorkspaceMismatchError,
 )
 from airbyte.mcp._error_handling import (
     MCP_TOOL_USER_FACING_ERRORS,
@@ -120,6 +121,26 @@ def test_expected_errors_are_presented_concisely(error: AirbyteLibError) -> None
     asyncio.run(call_tool())
 
 
+def test_workspace_mismatch_error_does_not_expose_owning_workspace() -> None:
+    server = _server_with_agent_error_text()
+    message = "Connection 'c' belongs to workspace 'w2', not 'w1'."
+
+    @server.tool
+    def raise_workspace_mismatch() -> None:
+        raise AirbyteWorkspaceMismatchError(
+            resource_type="connection",
+            resource_id="c",
+            expected_workspace_id="w1",
+            actual_workspace_id="w2",
+            message=message,
+        )
+
+    text = _call_error(server, "raise_workspace_mismatch")
+
+    assert "w2" not in text
+    assert message not in text
+
+
 def test_format_user_facing_error() -> None:
     assert (
         format_user_facing_error(AirbyteLibInputError(message="bad", guidance="fix it"))
@@ -200,6 +221,17 @@ def test_format_direct_cloud_api_error_uses_general_forbidden_guidance() -> None
             AirbyteConnectionSyncError(connection_id="c"),
             None,
             id="api-error-keeps-status-category",
+        ),
+        pytest.param(
+            AirbyteWorkspaceMismatchError(
+                resource_type="connection",
+                resource_id="c",
+                expected_workspace_id="w1",
+                actual_workspace_id="w2",
+                message="Connection 'c' belongs to workspace 'w2', not 'w1'.",
+            ),
+            "user_error",
+            id="workspace-mismatch",
         ),
         pytest.param(AirbyteLibInputError(message="bad input"), None, id="other-error"),
         pytest.param(ValueError("unexpected"), None, id="non-airbyte-error"),
