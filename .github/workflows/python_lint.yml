@@ -23,7 +23,7 @@ jobs:
       uses: astral-sh/setup-uv@f06b870e0a91d23284a3013acc55e6f88ab4b904 # v7
       with:
         version: "latest"
-        python-version: '3.10'
+        python-version: '3.11'
     - name: Install dev dependencies
       # We only need helper libraries
       run: uv sync --group dev
@@ -43,7 +43,7 @@ jobs:
       uses: astral-sh/setup-uv@f06b870e0a91d23284a3013acc55e6f88ab4b904 # v7
       with:
         version: "latest"
-        python-version: '3.10'
+        python-version: '3.11'
     - name: Install dev dependencies
       # We only need helper libraries
       run: uv sync --group dev
@@ -63,7 +63,7 @@ jobs:
       uses: astral-sh/setup-uv@f06b870e0a91d23284a3013acc55e6f88ab4b904 # v7
       with:
         version: "latest"
-        python-version: '3.10'
+        python-version: '3.11'
     - name: Install dev dependencies
       # We only need helper libraries
       run: uv sync --group dev
@@ -85,7 +85,7 @@ jobs:
       uses: astral-sh/setup-uv@f06b870e0a91d23284a3013acc55e6f88ab4b904 # v7
       with:
         version: "latest"
-        python-version: '3.10'
+        python-version: '3.11'
     - name: Install dev dependencies
       # We only need helper libraries
       run: uv sync --group dev
@@ -93,3 +93,17 @@ jobs:
     # Job-specific step(s):
     - name: Check public API imports
       run: uv run pytest tests/unit_tests/test_public_api_imports.py -m linting
+
+  docstring-markdown-check:
+    name: Python Docstring Format Check
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6
+    - name: Install uv
+      uses: astral-sh/setup-uv@f06b870e0a91d23284a3013acc55e6f88ab4b904 # v7
+      with:
+        version: "latest"
+
+    - name: Check docstring formatting
+      run: ./scripts/check_docstring_markdown.uv

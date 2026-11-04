@@ -10,14 +10,15 @@
 # tool / helper definitions as a redundant "API Documentation" list.
 __all__: list[str] = []
 
+import logging
 import sys
-import traceback
 from itertools import islice
 from pathlib import Path
 from typing import TYPE_CHECKING, Annotated, Any, Literal
 
 from fastmcp import FastMCP
-from fastmcp_extensions import mcp_tool, register_mcp_tools
+from fastmcp_extensions import TraceArg, register_mcp_tools
+from fastmcp_extensions.otel._extras import error_stack  # noqa: PLC2701
 from pydantic import BaseModel, Field
 
 from airbyte import get_source
@@ -28,8 +29,11 @@ from airbyte._util.destination_smoke_tests import (
 from airbyte._util.meta import is_docker_installed
 from airbyte.caches.util import get_default_cache
 from airbyte.destinations.util import get_destination
+from airbyte.exceptions import AirbyteLibInputError
 from airbyte.mcp._arg_resolvers import resolve_connector_config, resolve_list_of_strings
+from airbyte.mcp._error_handling import format_user_facing_error
 from airbyte.mcp._guards import raise_if_untrusted_execution_context
+from airbyte.mcp._tool_utils import mcp_tool
 from airbyte.registry import get_connector_metadata
 from airbyte.secrets.config import _get_secret_sources
 from airbyte.secrets.env_vars import DotenvSecretManager
@@ -39,6 +43,9 @@ from airbyte.sources.base import Source
 
 if TYPE_CHECKING:
     from airbyte.caches.duckdb import DuckDBCache
+
+
+logger = logging.getLogger(__name__)
 
 
 _CONFIG_HELP = """
@@ -114,9 +121,11 @@ def _get_mcp_source(
             install_if_missing=False,
         )
     else:
-        raise ValueError(
-            f"Unknown execution method: {override_execution_mode}. "
-            "Expected one of: ['auto', 'docker', 'python', 'yaml']."
+        raise AirbyteLibInputError(
+            message=(
+                f"Unknown execution method: {override_execution_mode}. "
+                "Expected one of: ['auto', 'docker', 'python', 'yaml']."
+            ),
         )
 
     # Ensure installed:
@@ -132,10 +141,11 @@ def _get_mcp_source(
     requires_client_filesystem=True,
     extra_help_text=_CONFIG_HELP,
 )
-def validate_connector_config(
+def validate_local_connector_config(
     connector_name: Annotated[
         str,
         Field(description="The name of the connector to validate."),
+        TraceArg.FINGERPRINT,
     ],
     config: Annotated[
         dict | str | None,
@@ -150,6 +160,7 @@ def validate_connector_config(
             description="Path to a YAML or JSON file containing the connector configuration.",
             default=None,
         ),
+        TraceArg.FINGERPRINT,
     ],
     config_secret_name: Annotated[
         str | None,
@@ -157,6 +168,7 @@ def validate_connector_config(
             description="The name of the secret containing the configuration.",
             default=None,
         ),
+        TraceArg.FINGERPRINT,
     ],
     override_execution_mode: Annotated[
         Literal["docker", "python", "yaml", "auto"],
@@ -172,6 +184,7 @@ def validate_connector_config(
             description="Path to a local YAML manifest file for declarative connectors.",
             default=None,
         ),
+        TraceArg.FINGERPRINT,
     ],
 ) -> tuple[bool, str]:
     """Validate a connector configuration.
@@ -185,7 +198,9 @@ def validate_connector_config(
             manifest_path=manifest_path,
         )
     except Exception as ex:
-        return False, f"Failed to get connector '{connector_name}': {ex}"
+        return False, (
+            f"Failed to get connector '{connector_name}': " f"{format_user_facing_error(ex)}"
+        )
 
     try:
         config_dict = resolve_connector_config(
@@ -196,12 +211,17 @@ def validate_connector_config(
         )
         source.set_config(config_dict)
     except Exception as ex:
-        return False, f"Failed to resolve configuration for {connector_name}: {ex}"
+        return False, (
+            f"Failed to resolve configuration for {connector_name}: "
+            f"{format_user_facing_error(ex)}"
+        )
 
     try:
         source.check()
     except Exception as ex:
-        return False, f"Configuration for {connector_name} is invalid: {ex}"
+        return False, (
+            f"Configuration for {connector_name} is invalid: " f"{format_user_facing_error(ex)}"
+        )
 
     return True, f"Configuration for {connector_name} is valid!"
 
@@ -211,10 +231,11 @@ def validate_connector_config(
     idempotent=True,
     requires_client_filesystem=True,
 )
-def list_connector_config_secrets(
+def list_local_connector_config_secrets(
     connector_name: Annotated[
         str,
         Field(description="The name of the connector."),
+        TraceArg.FINGERPRINT,
     ],
 ) -> list[str]:
     """List all `config_secret_name` options that are known for the given connector.
@@ -224,7 +245,7 @@ def list_connector_config_secrets(
     return the actual secret values.
     """
     raise_if_untrusted_execution_context(
-        "Listing connector config secrets (`list_connector_config_secrets`)"
+        "Listing connector config secrets (`list_local_connector_config_secrets`)"
     )
     secrets_names: list[str] = []
     for secrets_mgr in _get_secret_sources():
@@ -243,15 +264,16 @@ def list_connector_config_secrets(
     read_only=True,
     idempotent=True,
     requires_client_filesystem=True,
-    extra_help_text=_CONFIG_HELP,
 )
-def list_dotenv_secrets() -> dict[str, list[str]]:
+def list_local_dotenv_secrets() -> dict[str, list[str]]:
     """List all environment variable names declared within declared .env files.
 
     This returns a dictionary mapping the .env file name to a list of environment
     variable names. The values of the environment variables are not returned.
     """
-    raise_if_untrusted_execution_context("Listing dotenv secret names (`list_dotenv_secrets`)")
+    raise_if_untrusted_execution_context(
+        "Listing dotenv secret names (`list_local_dotenv_secrets`)"
+    )
     result: dict[str, list[str]] = {}
     for secrets_mgr in _get_secret_sources():
         if isinstance(secrets_mgr, DotenvSecretManager) and secrets_mgr.dotenv_path:
@@ -266,10 +288,11 @@ def list_dotenv_secrets() -> dict[str, list[str]]:
     requires_client_filesystem=True,
     extra_help_text=_CONFIG_HELP,
 )
-def list_source_streams(
+def list_local_source_streams(
     source_connector_name: Annotated[
         str,
         Field(description="The name of the source connector."),
+        TraceArg.FINGERPRINT,
     ],
     config: Annotated[
         dict | str | None,
@@ -284,6 +307,7 @@ def list_source_streams(
             description="Path to a YAML or JSON file containing the source connector config.",
             default=None,
         ),
+        TraceArg.FINGERPRINT,
     ],
     config_secret_name: Annotated[
         str | None,
@@ -291,6 +315,7 @@ def list_source_streams(
             description="The name of the secret containing the configuration.",
             default=None,
         ),
+        TraceArg.FINGERPRINT,
     ],
     override_execution_mode: Annotated[
         Literal["docker", "python", "yaml", "auto"],
@@ -306,6 +331,7 @@ def list_source_streams(
             description="Path to a local YAML manifest file for declarative connectors.",
             default=None,
         ),
+        TraceArg.FINGERPRINT,
     ],
 ) -> list[str]:
     """List all streams available in a source connector.
@@ -328,19 +354,22 @@ def list_source_streams(
 
 
 @mcp_tool(
+    title="Get local source stream JSON schema",  # Use capital 'JSON' in tool title
     read_only=True,
     idempotent=True,
     requires_client_filesystem=True,
     extra_help_text=_CONFIG_HELP,
 )
-def get_source_stream_json_schema(
+def get_local_source_stream_json_schema(
     source_connector_name: Annotated[
         str,
         Field(description="The name of the source connector."),
+        TraceArg.FINGERPRINT,
     ],
     stream_name: Annotated[
         str,
         Field(description="The name of the stream."),
+        TraceArg.FINGERPRINT,
     ],
     config: Annotated[
         dict | str | None,
@@ -355,6 +384,7 @@ def get_source_stream_json_schema(
             description="Path to a YAML or JSON file containing the source connector config.",
             default=None,
         ),
+        TraceArg.FINGERPRINT,
     ],
     config_secret_name: Annotated[
         str | None,
@@ -362,6 +392,7 @@ def get_source_stream_json_schema(
             description="The name of the secret containing the configuration.",
             default=None,
         ),
+        TraceArg.FINGERPRINT,
     ],
     override_execution_mode: Annotated[
         Literal["docker", "python", "yaml", "auto"],
@@ -377,6 +408,7 @@ def get_source_stream_json_schema(
             description="Path to a local YAML manifest file for declarative connectors.",
             default=None,
         ),
+        TraceArg.FINGERPRINT,
     ],
 ) -> dict[str, Any]:
     """List all properties for a specific stream in a source connector."""
@@ -400,10 +432,11 @@ def get_source_stream_json_schema(
     requires_client_filesystem=True,
     extra_help_text=_CONFIG_HELP,
 )
-def read_source_stream_records(
+def read_local_source_stream_records(
     source_connector_name: Annotated[
         str,
         Field(description="The name of the source connector."),
+        TraceArg.FINGERPRINT,
     ],
     config: Annotated[
         dict | str | None,
@@ -418,6 +451,7 @@ def read_source_stream_records(
             description="Path to a YAML or JSON file containing the source connector config.",
             default=None,
         ),
+        TraceArg.FINGERPRINT,
     ],
     config_secret_name: Annotated[
         str | None,
@@ -425,11 +459,13 @@ def read_source_stream_records(
             description="The name of the secret containing the configuration.",
             default=None,
         ),
+        TraceArg.FINGERPRINT,
     ],
     *,
     stream_name: Annotated[
         str,
         Field(description="The name of the stream to read records from."),
+        TraceArg.FINGERPRINT,
     ],
     max_records: Annotated[
         int,
@@ -452,6 +488,7 @@ def read_source_stream_records(
             description="Path to a local YAML manifest file for declarative connectors.",
             default=None,
         ),
+        TraceArg.FINGERPRINT,
     ],
 ) -> list[dict[str, Any]] | str:
     """Get records from a source connector."""
@@ -476,10 +513,16 @@ def read_source_stream_records(
         print(f"Retrieved {len(records)} records from stream '{stream_name}'", sys.stderr)
 
     except Exception as ex:
-        tb_str = traceback.format_exc()
+        logger.warning(
+            "Error reading records from source '%s' (%s)\n%s",
+            source_connector_name,
+            type(ex).__name__,
+            error_stack(ex) or "",
+        )
         # If any error occurs, we print the error message to stderr and return an empty list.
         return (
-            f"Error reading records from source '{source_connector_name}': {ex!r}, {ex!s}\n{tb_str}"
+            f"Error reading records from source '{source_connector_name}': "
+            f"{format_user_facing_error(ex)}"
         )
 
     else:
@@ -491,10 +534,11 @@ def read_source_stream_records(
     requires_client_filesystem=True,
     extra_help_text=_CONFIG_HELP,
 )
-def get_stream_previews(
+def get_local_stream_previews(
     source_name: Annotated[
         str,
         Field(description="The name of the source connector."),
+        TraceArg.FINGERPRINT,
     ],
     config: Annotated[
         dict | str | None,
@@ -509,6 +553,7 @@ def get_stream_previews(
             description="Path to a YAML or JSON file containing the source connector config.",
             default=None,
         ),
+        TraceArg.FINGERPRINT,
     ],
     config_secret_name: Annotated[
         str | None,
@@ -516,6 +561,7 @@ def get_stream_previews(
             description="The name of the secret containing the configuration.",
             default=None,
         ),
+        TraceArg.FINGERPRINT,
     ],
     streams: Annotated[
         list[str] | str | None,
@@ -526,6 +572,7 @@ def get_stream_previews(
             ),
             default=None,
         ),
+        TraceArg.FINGERPRINT,
     ],
     limit: Annotated[
         int,
@@ -533,6 +580,7 @@ def get_stream_previews(
             description="The maximum number of sample records to return per stream.",
             default=10,
         ),
+        TraceArg.VALUE,
     ],
     override_execution_mode: Annotated[
         Literal["docker", "python", "yaml", "auto"],
@@ -548,6 +596,7 @@ def get_stream_previews(
             description="Path to a local YAML manifest file for declarative connectors.",
             default=None,
         ),
+        TraceArg.FINGERPRINT,
     ],
 ) -> dict[str, list[dict[str, Any]] | str]:
     """Get sample records (previews) from streams in a source connector.
@@ -583,10 +632,15 @@ def get_stream_previews(
             on_error="ignore",
         )
     except Exception as ex:
-        tb_str = traceback.format_exc()
+        logger.warning(
+            "Error getting stream previews from source '%s' (%s)\n%s",
+            source_name,
+            type(ex).__name__,
+            error_stack(ex) or "",
+        )
         return {
             "ERROR": f"Error getting stream previews from source '{source_name}': "
-            f"{ex!r}, {ex!s}\n{tb_str}"
+            f"{format_user_facing_error(ex)}"
         }
 
     result: dict[str, list[dict[str, Any]] | str] = {}
@@ -600,14 +654,15 @@ def get_stream_previews(
 
 
 @mcp_tool(
-    destructive=False,
+    destructive=True,  # AUTO write strategy may replace tables without a primary key or cursor
     requires_client_filesystem=True,
     extra_help_text=_CONFIG_HELP,
 )
-def sync_source_to_cache(
+def sync_local_source_to_cache(
     source_connector_name: Annotated[
         str,
         Field(description="The name of the source connector."),
+        TraceArg.FINGERPRINT,
     ],
     config: Annotated[
         dict | str | None,
@@ -622,6 +677,7 @@ def sync_source_to_cache(
             description="Path to a YAML or JSON file containing the source connector config.",
             default=None,
         ),
+        TraceArg.FINGERPRINT,
     ],
     config_secret_name: Annotated[
         str | None,
@@ -629,6 +685,7 @@ def sync_source_to_cache(
             description="The name of the secret containing the configuration.",
             default=None,
         ),
+        TraceArg.FINGERPRINT,
     ],
     streams: Annotated[
         list[str] | str,
@@ -636,6 +693,7 @@ def sync_source_to_cache(
             description="The streams to sync.",
             default="suggested",
         ),
+        TraceArg.FINGERPRINT,
     ],
     override_execution_mode: Annotated[
         Literal["docker", "python", "yaml", "auto"],
@@ -651,6 +709,7 @@ def sync_source_to_cache(
             description="Path to a local YAML manifest file for declarative connectors.",
             default=None,
         ),
+        TraceArg.FINGERPRINT,
     ],
 ) -> str:
     """Run a sync from a source connector to the default DuckDB cache."""
@@ -712,11 +771,12 @@ class CachedDatasetInfo(BaseModel):
     read_only=True,
     idempotent=True,
     requires_client_filesystem=True,
-    extra_help_text=_CONFIG_HELP,
 )
-def list_cached_streams() -> list[CachedDatasetInfo]:
+def list_local_cached_streams() -> list[CachedDatasetInfo]:
     """List all streams available in the default DuckDB cache."""
-    raise_if_untrusted_execution_context("Reading the local default cache (`list_cached_streams`)")
+    raise_if_untrusted_execution_context(
+        "Reading the local default cache (`list_local_cached_streams`)"
+    )
     cache: DuckDBCache = get_default_cache()
     result = [
         CachedDatasetInfo(
@@ -734,12 +794,11 @@ def list_cached_streams() -> list[CachedDatasetInfo]:
     read_only=True,
     idempotent=True,
     requires_client_filesystem=True,
-    extra_help_text=_CONFIG_HELP,
 )
-def describe_default_cache() -> dict[str, Any]:
+def describe_local_default_cache() -> dict[str, Any]:
     """Describe the currently configured default cache."""
     raise_if_untrusted_execution_context(
-        "Describing the local default cache (`describe_default_cache`)"
+        "Describing the local default cache (`describe_local_default_cache`)"
     )
     cache = get_default_cache()
     return {
@@ -786,12 +845,12 @@ def _is_safe_sql(sql_query: str) -> bool:
 
 
 @mcp_tool(
+    title="Run local SQL query",  # Use capital 'SQL' in tool title
     read_only=True,
     idempotent=True,
     requires_client_filesystem=True,
-    extra_help_text=_CONFIG_HELP,
 )
-def run_sql_query(
+def run_local_sql_query(
     sql_query: Annotated[
         str,
         Field(description="The SQL query to execute."),
@@ -807,7 +866,7 @@ def run_sql_query(
     """Run a SQL query against the default cache.
 
     The dialect of SQL should match the dialect of the default cache.
-    Use `describe_default_cache` to see the cache type.
+    Use `describe_local_default_cache` to see the cache type.
 
     For DuckDB-type caches:
     - Use `SHOW TABLES` to list all tables.
@@ -815,7 +874,7 @@ def run_sql_query(
 
     For security reasons, only read-only operations are allowed: SELECT, DESCRIBE, SHOW, EXPLAIN.
     """
-    raise_if_untrusted_execution_context("Querying the local default cache (`run_sql_query`)")
+    raise_if_untrusted_execution_context("Querying the local default cache (`run_local_sql_query`)")
     # Check if the query is safe to execute
     if not _is_safe_sql(sql_query):
         return [
@@ -833,11 +892,14 @@ def run_sql_query(
             max_records=max_records,
         )
     except Exception as ex:
-        tb_str = traceback.format_exc()
+        logger.warning(
+            "Error running SQL query (%s)\n%s",
+            type(ex).__name__,
+            error_stack(ex) or "",
+        )
         return [
             {
-                "ERROR": f"Error running SQL query: {ex!r}, {ex!s}",
-                "TRACEBACK": tb_str,
+                "ERROR": f"Error running SQL query: {format_user_facing_error(ex)}",
                 "SQL_QUERY": sql_query,
             }
         ]
@@ -849,7 +911,7 @@ def run_sql_query(
     destructive=True,
     requires_client_filesystem=True,
 )
-def destination_smoke_test(  # noqa: PLR0913, PLR0917
+def run_local_destination_smoke_test(  # noqa: PLR0913, PLR0917
     destination_connector_name: Annotated[
         str,
         Field(
@@ -858,6 +920,7 @@ def destination_smoke_test(  # noqa: PLR0913, PLR0917
                 "(e.g. 'destination-snowflake', 'destination-motherduck')."
             ),
         ),
+        TraceArg.FINGERPRINT,
     ],
     config: Annotated[
         dict | str | None,
@@ -875,6 +938,7 @@ def destination_smoke_test(  # noqa: PLR0913, PLR0917
             description="Path to a YAML or JSON file containing the destination configuration.",
             default=None,
         ),
+        TraceArg.FINGERPRINT,
     ],
     config_secret_name: Annotated[
         str | None,
@@ -882,6 +946,7 @@ def destination_smoke_test(  # noqa: PLR0913, PLR0917
             description="The name of the secret containing the destination configuration.",
             default=None,
         ),
+        TraceArg.FINGERPRINT,
     ],
     scenarios: Annotated[
         list[str] | str,
@@ -894,6 +959,7 @@ def destination_smoke_test(  # noqa: PLR0913, PLR0917
             ),
             default="fast",
         ),
+        TraceArg.FINGERPRINT,
     ],
     custom_scenarios: Annotated[
         list[dict[str, Any]] | None,
@@ -915,6 +981,7 @@ def destination_smoke_test(  # noqa: PLR0913, PLR0917
             ),
             default=None,
         ),
+        TraceArg.FINGERPRINT,
     ],
     namespace_suffix: Annotated[
         str | None,
@@ -926,6 +993,7 @@ def destination_smoke_test(  # noqa: PLR0913, PLR0917
             ),
             default=None,
         ),
+        TraceArg.FINGERPRINT,
     ],
     reuse_namespace: Annotated[
         str | None,
@@ -937,6 +1005,7 @@ def destination_smoke_test(  # noqa: PLR0913, PLR0917
             ),
             default=None,
         ),
+        TraceArg.FINGERPRINT,
     ],
     skip_preflight: Annotated[
         bool,
@@ -965,7 +1034,9 @@ def destination_smoke_test(  # noqa: PLR0913, PLR0917
     per-column null/non-null counts. Results are included in the response
     as `table_statistics` and `tables_not_found`.
     """
-    raise_if_untrusted_execution_context("Destination smoke test (`destination_smoke_test`)")
+    raise_if_untrusted_execution_context(
+        "Destination smoke test (`run_local_destination_smoke_test`)"
+    )
     # Resolve destination config
     config_dict = resolve_connector_config(
         config=config,

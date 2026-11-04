@@ -59,6 +59,37 @@ jobs:
         fi
         echo "short-sha=${SHA:0:7}" >> "$GITHUB_OUTPUT"
 
+    - name: Read run arguments
+      id: args
+      if: inputs.comment-id != ''
+      env:
+        COMMENT_ID: ${{ inputs.comment-id }}
+        GH_TOKEN: ${{ github.token }}
+        BASE_LABEL: ${{ steps.mode.outputs.label }}
+      run: |
+        set -euo pipefail
+        COMMENT_BODY="$(gh api "repos/$GITHUB_REPOSITORY/issues/comments/$COMMENT_ID" --jq .body)"
+        export COMMENT_BODY
+        RUN_ARGS="$(python3 - <<'PY'
+        import os
+        import re
+
+        first_line = os.environ["COMMENT_BODY"].split("\n", 1)[0].rstrip("\r")
+        first_line = re.sub(r"^\s*/evals(?:\s+|$)", "", first_line, count=1)
+        first_line = re.sub(r"(?<!\S)(?:full|ref)=[^\s]+", "", first_line)
+        print(first_line.strip())
+        PY
+        )"
+        delimiter="$(python3 -c 'import secrets; print(secrets.token_hex(16))')"
+        {
+          printf 'run-args<<%s\n' "$delimiter"
+          printf '%s\n' "$RUN_ARGS"
+          printf '%s\n' "$delimiter"
+        } >> "$GITHUB_OUTPUT"
+        label="$BASE_LABEL"
+        [[ -n "$RUN_ARGS" ]] && printf -v label "%s, \`%s\`" "$BASE_LABEL" "$RUN_ARGS"
+        printf 'label=%s\n' "$label" | tee -a "$GITHUB_OUTPUT"
+
     - name: Append comment with job run link
       id: first-comment-action
       uses: peter-evans/create-or-update-comment@e8674b075228eee787fea43ef493e45ece1004c9 # v5.0.0
@@ -67,7 +98,7 @@ jobs:
         issue-number: ${{ inputs.pr }}
         body: |
 
-          > Cloud MCP evals queued for `${{ steps.mode.outputs.short-sha }}` (${{ steps.mode.outputs.label }}). [Check job output.](${{ steps.vars.outputs.run-url }})
+          > Cloud MCP evals queued for `${{ steps.mode.outputs.short-sha }}` (${{ steps.args.outputs.label || steps.mode.outputs.label }}). [Check job output.](${{ steps.vars.outputs.run-url }})
 
     # The token lasts one hour; a full evals run takes about 20 minutes.
     - name: Authenticate as GitHub App
@@ -85,11 +116,14 @@ jobs:
       env:
         GH_TOKEN: ${{ steps.get-app-token.outputs.token }}
         CHANGED_ONLY: ${{ steps.mode.outputs.changed-only }}
+        RUN_ARGS: ${{ steps.args.outputs.run-args }}
       run: |
         set -euo pipefail
         since=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+        extra=()
+        [[ -n "$RUN_ARGS" ]] && extra=(-f run_args="$RUN_ARGS")
         gh workflow run evals.yml -R "$EVALS_REPO" --ref main \
-          -f pyairbyte="#$PR" -f changed_tools_only="$CHANGED_ONLY"
+          -f pyairbyte="#$PR" -f changed_tools_only="$CHANGED_ONLY" "${extra[@]}"
         title="PyAirbyte evals: #$PR"
         for _ in $(seq 18); do
           sleep 10
@@ -119,7 +153,7 @@ jobs:
         GH_TOKEN: ${{ steps.get-app-token.outputs.token }}
         RUN_ID: ${{ steps.dispatch.outputs.run-id }}
         RUN_URL: ${{ steps.dispatch.outputs.run-url }}
-        LABEL: ${{ steps.mode.outputs.label }}
+        LABEL: ${{ steps.args.outputs.label || steps.mode.outputs.label }}
         CHANGED_ONLY: ${{ steps.mode.outputs.changed-only }}
       run: |
         set -euo pipefail

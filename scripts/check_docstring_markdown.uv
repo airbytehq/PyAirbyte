@@ -1,0 +1,114 @@
+#!/usr/bin/env -S uv run --script --python 3.13
+# /// script
+# requires-python = ">=3.11,<3.14"
+# dependencies = []
+# ///
+"""Fail on reStructuredText syntax in docstrings.
+
+pdoc renders docstrings as Markdown, so RST reaches readers verbatim: ``Foo``
+shows up with literal backticks and `:meth:` roles as literal text.
+
+Only `*.py` files are checked, so standalone `*.uv` scripts -- this one
+included -- are exempt and may use RST syntax in their own docstrings.
+
+Standalone: uv resolves the interpreter from the metadata below and no
+dependencies beyond the standard library are needed, so this runs without the
+project environment.
+
+```bash
+./scripts/check_docstring_markdown.uv                    # defaults to _DEFAULT_PACKAGE
+./scripts/check_docstring_markdown.uv my_package/errors.py
+uv run scripts/check_docstring_markdown.uv               # same, without the executable bit
+```
+
+Exits 1 with a `file:line: message` report per violation.
+"""
+
+from __future__ import annotations
+
+import ast
+import re
+import sys
+from pathlib import Path
+
+# Package scanned when no path argument is given, relative to the project root
+# (this script's parent directory's parent). Adapt per repo.
+_DEFAULT_PACKAGE = "airbyte"
+
+# Double backticks, excluding a run of three or more (fence delimiters).
+_DOUBLE_BACKTICK = re.compile(r"(?<!`)``(?!`)")
+_RST_ROLE = re.compile(r":(?:meth|func|class|mod|attr|obj|exc|data|ref|doc):`")
+_RST_FIELD = re.compile(r"^\s*:(?:param|parameter|arg|argument|type|returns?|rtype|raises|yields?|ivar|cvar|vartype)\b", re.MULTILINE)
+
+_CHECKS = (
+    (_DOUBLE_BACKTICK, "double backticks -- use single backticks for inline code"),
+    (_RST_ROLE, "reStructuredText role -- use a plain backticked reference"),
+    (_RST_FIELD, "reStructuredText field list -- use a Google-style `Args:` / `Returns:` / `Raises:` section"),
+)
+
+
+def _docstrings(tree: ast.Module) -> list[ast.Constant]:
+    """Every docstring node in *tree*, module and definitions alike."""
+    nodes: list[ast.Constant] = []
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Module | ast.ClassDef | ast.FunctionDef | ast.AsyncFunctionDef):
+            continue
+        body = node.body
+        if body and isinstance(body[0], ast.Expr) and isinstance(body[0].value, ast.Constant) and isinstance(body[0].value.value, str):
+            nodes.append(body[0].value)
+    return nodes
+
+
+def _offset_to_line(text: str, offset: int, start_line: int) -> int:
+    return start_line + text.count("\n", 0, offset)
+
+
+def check_file(path: Path) -> list[str]:
+    """Violations in *path*, formatted as `file:line: message`."""
+    source = path.read_text(encoding="utf-8")
+    try:
+        tree = ast.parse(source, filename=str(path))
+    except SyntaxError as exc:
+        return [f"{path}:{exc.lineno or 0}: could not parse file ({exc.msg})"]
+
+    seen: set[tuple[int, str]] = set()
+    for node in _docstrings(tree):
+        # Constant.lineno is the opening quote; the body starts on that line.
+        for pattern, message in _CHECKS:
+            for match in pattern.finditer(node.value):
+                # One report per line and rule: a backtick pair matches twice.
+                seen.add((_offset_to_line(node.value, match.start(), node.lineno), message))
+    return [f"{path}:{line}: {message}" for line, message in sorted(seen)]
+
+
+def iter_python_files(targets: list[Path]) -> list[Path]:
+    files: list[Path] = []
+    for target in targets:
+        if target.is_dir():
+            files.extend(sorted(p for p in target.rglob("*.py") if "generated" not in p.parts))
+        elif target.suffix == ".py":
+            files.append(target)
+    return files
+
+
+def main(argv: list[str]) -> int:
+    root = Path(__file__).resolve().parent.parent
+    targets = [Path(arg) for arg in argv] or [root / _DEFAULT_PACKAGE]
+    violations = [v for path in iter_python_files(targets) for v in check_file(path)]
+
+    if violations:
+        print(f"Found {len(violations)} reStructuredText docstring violation(s):", file=sys.stderr)
+        for violation in violations:
+            print(violation, file=sys.stderr)
+        print(
+            "\nDocstrings are rendered as Markdown by pdoc. See CONTRIBUTING.md.",
+            file=sys.stderr,
+        )
+        return 1
+
+    print("✓ no reStructuredText syntax found in docstrings")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))

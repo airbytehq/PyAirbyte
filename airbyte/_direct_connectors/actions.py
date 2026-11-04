@@ -1,9 +1,8 @@
 # Copyright (c) 2026 Airbyte, Inc., all rights reserved.
 """Connector action names and request-param helpers for direct connector execution.
 
-This module is a leaf: it must not import anything from `airbyte.agents` or `airbyte.cloud`,
-so `airbyte.cloud.connectors` can use these names without creating an import cycle.
-`airbyte.agents.connectors` re-exports the same names for backwards compatibility.
+This module is a leaf: it must not import anything from `airbyte.cloud`, so
+`airbyte.cloud.connectors` can use these names without creating an import cycle.
 """
 
 from __future__ import annotations
@@ -11,7 +10,7 @@ from __future__ import annotations
 from enum import Enum
 from typing import Any
 
-from airbyte.exceptions import PyAirbyteInputError
+from airbyte.exceptions import AirbyteLibInputError
 
 
 UNSUPPORTED_ACTIONS: set[str] = {"download"}
@@ -27,8 +26,9 @@ class AgentReadAction(str, Enum):
     """Connector actions that only read data.
 
     The `search` action is the connector's native API search, parallel to `get` and `list`.
-    The `sql_select` action runs one read-only SQL statement (or `SHOW TABLES`) on the query
-    engine behind a destination connector. Pass `sql` and `sql_dialect` (and optionally
+    The `sql_select` action runs one read-only SQL statement on the query engine behind a
+    destination connector: a `SELECT`/`WITH` query or the `SHOW TABLES`, `SHOW DATABASES`,
+    or `DESCRIBE TABLE <table>` macro. Pass `sql` and `sql_dialect` (and optionally
     `dry_run`) in `api_args`; `entity_type` is ignored for this action.
 
     The `download` action is deliberately absent even though it reads: it returns a binary
@@ -78,7 +78,7 @@ def _build_params(
         if pagination[name] is not None and param_key in params
     )
     if conflicts:
-        raise PyAirbyteInputError(
+        raise AirbyteLibInputError(
             message="Pagination arguments were provided twice.",
             guidance=(
                 "Pass each of `page_size` and `cursor` either as a keyword argument or "

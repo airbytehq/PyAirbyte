@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import pytest
-from airbyte.types import SQLTypeConversionError, SQLTypeConverter, _get_airbyte_type
+from airbyte.types import _SQLTypeConversionError, SQLTypeConverter, _get_airbyte_type
 from sqlalchemy import types
 
 
@@ -126,9 +126,9 @@ def test_to_sql_type(json_schema_property_def, expected_sql_type):
         ({"type": ["null", "array"], "items": {"type": "object"}}, "array", None),
         # Object type:
         ({"type": "object"}, "object", None),
-        ({"type": ["null", "object", "string"]}, None, SQLTypeConversionError),
-        ({"type": ["not-a-type"]}, None, SQLTypeConversionError),
-        ({"tyyyype": ["not-a-type"]}, None, SQLTypeConversionError),
+        ({"type": ["null", "object", "string"]}, None, _SQLTypeConversionError),
+        ({"type": ["not-a-type"]}, None, _SQLTypeConversionError),
+        ({"tyyyype": ["not-a-type"]}, None, _SQLTypeConversionError),
         # Malformed JSON schema seen in the wild:
         ({"type": "array", "items": {"items": {}}}, "array", None),
         ({"type": ["null", "array"], "items": {"items": {}}}, "array", None),
