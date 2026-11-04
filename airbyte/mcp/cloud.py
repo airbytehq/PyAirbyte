@@ -101,7 +101,11 @@ from airbyte.mcp._docs_results import (
 )
 from airbyte.mcp._error_handling import format_user_facing_error, redact_agent_text
 from airbyte.mcp._guards import is_trusted_execution_enabled
-from airbyte.mcp._scope import record_default_workspace, record_resolved_organization
+from airbyte.mcp._scope import (
+    record_default_workspace,
+    record_resolved_organization,
+    record_resource_workspace,
+)
 from airbyte.mcp._tool_utils import (
     AIRBYTE_CLOUD_WORKSPACE_ID_IS_SET,
     _insiders_mode,
@@ -135,6 +139,10 @@ DELETE_NAME_GUARD_TIP_TEXT = (
     "correct resource is targeted."
 )
 WORKSPACE_ID_TIP_TEXT = "Optional; defaults to the session's workspace."
+RESOURCE_WORKSPACE_ID_TIP_TEXT = (
+    "Optional; defaults to the session's configured workspace, else the workspace that owns "
+    "the given resource."
+)
 MANIFEST_YAML_SOURCE_HINT = (
     "Provide the manifest as either `manifest_yaml_text` or `manifest_yaml_file`, not both."
 )
@@ -316,20 +324,26 @@ class CloudConnectionResult(BaseModel):
     """ID of the source used by this connection."""
     destination_id: str
     """ID of the destination used by this connection."""
+    sync_status_fetched: bool = False
+    """Whether sync job status was looked up for this connection.
+    True when the tool was called with `with_connection_status=True` or
+    `failing_connections_only=True`. When False, all job fields below are null regardless
+    of the connection's actual sync history."""
     last_job_status: str | None = None
     """Status of the most recent completed sync job (e.g., 'succeeded', 'failed', 'cancelled').
-    Only populated when with_connection_status=True."""
+    Null if `sync_status_fetched` is False, or if the connection has no completed jobs."""
     last_job_id: int | None = None
-    """Job ID of the most recent completed sync. Only populated when with_connection_status=True."""
+    """Job ID of the most recent completed sync.
+    Null if `sync_status_fetched` is False, or if the connection has no completed jobs."""
     last_job_time: str | None = None
-    """ISO 8601 timestamp of the most recent completed sync.
-    Only populated when with_connection_status=True."""
+    """ISO 8601 start timestamp of the most recent completed sync.
+    Null if `sync_status_fetched` is False, or if the connection has no completed jobs."""
     currently_running_job_id: int | None = None
     """Job ID of a currently running sync, if any.
-    Only populated when with_connection_status=True."""
+    Null if `sync_status_fetched` is False, or if no sync is currently running."""
     currently_running_job_start_time: str | None = None
     """ISO 8601 timestamp of when the currently running sync started.
-    Only populated when with_connection_status=True."""
+    Null if `sync_status_fetched` is False, or if no sync is currently running."""
 
 
 class CloudConnectionDetails(BaseModel):
@@ -622,6 +636,56 @@ def _get_cloud_workspace(
         raise AirbyteMissingWorkspaceContextError
 
     return client.get_workspace(resolved_workspace_id)
+
+
+def _resolve_resource_workspace_id(
+    ctx: Context,
+    *,
+    connection_id: str | None = None,
+    connector_id: str | None = None,
+    connector_type: ConnectorType | None = None,
+) -> str | None:
+    """Return the workspace that owns the resource, or None when the session pins a workspace."""
+    if (connection_id is None) == (connector_id is None):
+        raise ValueError("Provide exactly one of `connection_id` or `connector_id`.")
+
+    client = _get_cloud_client(ctx)
+    if client.default_workspace_id:
+        return None
+
+    if connection_id is not None:
+        return client.get_connection_workspace_id(connection_id)
+
+    assert connector_id is not None
+    connector_type_value = (
+        cast(Literal["source", "destination"], connector_type.value)
+        if connector_type is not None
+        else None
+    )
+    return client.get_connector_workspace_id(connector_id, connector_type_value)
+
+
+def _get_cloud_workspace_for_resource(
+    ctx: Context,
+    workspace_id: str | None,
+    *,
+    connection_id: str | None = None,
+    connector_id: str | None = None,
+    connector_type: ConnectorType | None = None,
+) -> CloudWorkspace:
+    if workspace_id:
+        return _get_cloud_workspace(ctx, workspace_id)
+
+    resource_workspace_id = _resolve_resource_workspace_id(
+        ctx,
+        connection_id=connection_id,
+        connector_id=connector_id,
+        connector_type=connector_type,
+    )
+    if resource_workspace_id is not None:
+        record_resource_workspace(resource_workspace_id)
+        return _get_cloud_workspace(ctx, resource_workspace_id)
+    return _get_cloud_workspace(ctx)
 
 
 def _get_cloud_client(
@@ -923,7 +987,7 @@ def create_connection(
     workspace_id: Annotated[
         str | None,
         Field(
-            description=WORKSPACE_ID_TIP_TEXT,
+            description=RESOURCE_WORKSPACE_ID_TIP_TEXT,
             default=None,
         ),
         TraceArg.OMIT,
@@ -965,7 +1029,9 @@ def create_connection(
     name). Use `table_prefix` (for example `<source>_`) to keep them separate.
     """
     resolved_streams_list: list[str] = resolve_list_of_strings(selected_streams) or []
-    workspace: CloudWorkspace = _get_cloud_workspace(ctx, workspace_id)
+    workspace: CloudWorkspace = _get_cloud_workspace_for_resource(
+        ctx, workspace_id, connector_id=source_id, connector_type=ConnectorType.SOURCE
+    )
 
     source = workspace.get_source(source_id)
     destination = workspace.get_destination(destination_id)
@@ -1024,7 +1090,7 @@ def run_connection_sync(
     workspace_id: Annotated[
         str | None,
         Field(
-            description=WORKSPACE_ID_TIP_TEXT,
+            description=RESOURCE_WORKSPACE_ID_TIP_TEXT,
             default=None,
         ),
         TraceArg.OMIT,
@@ -1057,7 +1123,9 @@ def run_connection_sync(
     first if a restart is really wanted. After a `wait=True` timeout, the sync keeps running;
     check `get_connection_sync_status` rather than starting another sync.
     """
-    workspace: CloudWorkspace = _get_cloud_workspace(ctx, workspace_id)
+    workspace: CloudWorkspace = _get_cloud_workspace_for_resource(
+        ctx, workspace_id, connection_id=connection_id
+    )
     connection = workspace.get_connection(connection_id=connection_id)
     sync_result = connection.run_sync(wait=wait, wait_timeout=wait_timeout)
 
@@ -1134,7 +1202,7 @@ def get_connection_sync_status(
     workspace_id: Annotated[
         str | None,
         Field(
-            description=WORKSPACE_ID_TIP_TEXT,
+            description=RESOURCE_WORKSPACE_ID_TIP_TEXT,
             default=None,
         ),
         TraceArg.OMIT,
@@ -1152,7 +1220,9 @@ def get_connection_sync_status(
     `connection_id` is required, and any supplied `job_id` must belong to that connection. Use
     `list_connection_sync_jobs` to find job IDs for the connection.
     """
-    workspace: CloudWorkspace = _get_cloud_workspace(ctx, workspace_id)
+    workspace: CloudWorkspace = _get_cloud_workspace_for_resource(
+        ctx, workspace_id, connection_id=connection_id
+    )
     connection = workspace.get_connection(connection_id=connection_id)
 
     sync_result: SyncResult | None = connection.get_sync_result(job_id=job_id)
@@ -1202,7 +1272,7 @@ def list_connection_sync_jobs(
     workspace_id: Annotated[
         str | None,
         Field(
-            description=WORKSPACE_ID_TIP_TEXT,
+            description=RESOURCE_WORKSPACE_ID_TIP_TEXT,
             default=None,
         ),
         TraceArg.OMIT,
@@ -1250,7 +1320,9 @@ def list_connection_sync_jobs(
     if from_tail is None:
         from_tail = True
 
-    workspace: CloudWorkspace = _get_cloud_workspace(ctx, workspace_id)
+    workspace: CloudWorkspace = _get_cloud_workspace_for_resource(
+        ctx, workspace_id, connection_id=connection_id
+    )
     connection = workspace.get_connection(connection_id=connection_id)
 
     # Cap at 500 to avoid overloading agent context
@@ -1307,14 +1379,16 @@ def cancel_connection_sync(
     workspace_id: Annotated[
         str | None,
         Field(
-            description=WORKSPACE_ID_TIP_TEXT,
+            description=RESOURCE_WORKSPACE_ID_TIP_TEXT,
             default=None,
         ),
         TraceArg.OMIT,
     ],
 ) -> SyncJobResult:
     """Cancel a running sync job on an Airbyte Cloud connection."""
-    workspace: CloudWorkspace = _get_cloud_workspace(ctx, workspace_id)
+    workspace: CloudWorkspace = _get_cloud_workspace_for_resource(
+        ctx, workspace_id, connection_id=connection_id
+    )
     connection = workspace.get_connection(connection_id=connection_id)
     # Deliberately omit check_guid_created_in_session: cancelling a sync is reversible.
     sync_result = connection.cancel_sync(job_id=job_id)
@@ -1641,7 +1715,7 @@ def describe_connector(
     workspace_id: Annotated[
         str | None,
         Field(
-            description=WORKSPACE_ID_TIP_TEXT,
+            description=RESOURCE_WORKSPACE_ID_TIP_TEXT,
             default=None,
         ),
         TraceArg.OMIT,
@@ -1687,7 +1761,9 @@ def describe_connector(
     connector's configuration, its connections, its direct-access docs, and links to
     its upstream API documentation.
     """
-    workspace: CloudWorkspace = _get_cloud_workspace(ctx, workspace_id)
+    workspace: CloudWorkspace = _get_cloud_workspace_for_resource(
+        ctx, workspace_id, connector_id=connector_id, connector_type=connector_type
+    )
     return _describe_cloud_connector(
         _get_cloud_connector(workspace, connector_id, connector_type),
         with_config=with_config,
@@ -1821,7 +1897,7 @@ def execute_external_api_query(  # noqa: PLR0913  # Explicit args mirror the con
     workspace_id: Annotated[
         str | None,
         Field(
-            description=WORKSPACE_ID_TIP_TEXT,
+            description=RESOURCE_WORKSPACE_ID_TIP_TEXT,
             default=None,
         ),
         TraceArg.OMIT,
@@ -1837,7 +1913,9 @@ def execute_external_api_query(  # noqa: PLR0913  # Explicit args mirror the con
     `describe_connector` with `with_direct_access_guidance=True` also returns the
     connector's action docs.
     """
-    connector = _get_cloud_workspace(ctx, workspace_id).get_connector(connector_id)
+    connector = _get_cloud_workspace_for_resource(
+        ctx, workspace_id, connector_id=connector_id
+    ).get_connector(connector_id)
     try:
         return connector.execute_api_query(
             entity_type,
@@ -1928,7 +2006,7 @@ def _execute_external_api_action(  # noqa: PLR0913  # Explicit args mirror the c
     workspace_id: Annotated[
         str | None,
         Field(
-            description=WORKSPACE_ID_TIP_TEXT,
+            description=RESOURCE_WORKSPACE_ID_TIP_TEXT,
             default=None,
         ),
     ] = None,
@@ -1942,7 +2020,9 @@ def _execute_external_api_action(  # noqa: PLR0913  # Explicit args mirror the c
     learn the entity types, actions, and required `api_args`; argument names
     differ per connector and are not guessable.
     """
-    connector = _get_cloud_workspace(ctx, workspace_id).get_connector(connector_id)
+    connector = _get_cloud_workspace_for_resource(
+        ctx, workspace_id, connector_id=connector_id
+    ).get_connector(connector_id)
     try:
         return connector.execute_api_action(
             entity_type,
@@ -2022,7 +2102,7 @@ def execute_external_sql_query(
     workspace_id: Annotated[
         str | None,
         Field(
-            description=WORKSPACE_ID_TIP_TEXT,
+            description=RESOURCE_WORKSPACE_ID_TIP_TEXT,
             default=None,
         ),
         TraceArg.OMIT,
@@ -2062,7 +2142,9 @@ def execute_external_sql_query(
     no `LIMIT`; add a `LIMIT` to every `SELECT`. On Snowflake prefer unquoted
     identifiers: double-quoting makes them case-sensitive.
     """
-    connector = _get_cloud_workspace(ctx, workspace_id).get_connector(connector_id)
+    connector = _get_cloud_workspace_for_resource(
+        ctx, workspace_id, connector_id=connector_id
+    ).get_connector(connector_id)
     try:
         return connector.execute_sql_query(
             sql,
@@ -2208,7 +2290,7 @@ def execute_external_search_query(  # noqa: PLR0913  # Explicit args mirror the 
     workspace_id: Annotated[
         str | None,
         Field(
-            description=WORKSPACE_ID_TIP_TEXT,
+            description=RESOURCE_WORKSPACE_ID_TIP_TEXT,
             default=None,
         ),
         TraceArg.OMIT,
@@ -2239,7 +2321,11 @@ def execute_external_search_query(  # noqa: PLR0913  # Explicit args mirror the 
     or `execute_external_sql_query`.
     """
     connector = _get_cloud_connector(
-        _get_cloud_workspace(ctx, workspace_id), connector_id, connector_type
+        _get_cloud_workspace_for_resource(
+            ctx, workspace_id, connector_id=connector_id, connector_type=connector_type
+        ),
+        connector_id,
+        connector_type,
     )
     try:
         return connector.execute_search_query(
@@ -2299,7 +2385,7 @@ def get_search_index_status(
     workspace_id: Annotated[
         str | None,
         Field(
-            description=WORKSPACE_ID_TIP_TEXT,
+            description=RESOURCE_WORKSPACE_ID_TIP_TEXT,
             default=None,
         ),
         TraceArg.OMIT,
@@ -2322,7 +2408,11 @@ def get_search_index_status(
     no stream returns a `warnings` entry listing the indexed streams.
     """
     connector = _get_cloud_connector(
-        _get_cloud_workspace(ctx, workspace_id), connector_id, connector_type
+        _get_cloud_workspace_for_resource(
+            ctx, workspace_id, connector_id=connector_id, connector_type=connector_type
+        ),
+        connector_id,
+        connector_type,
     )
     try:
         status = connector.get_search_status()
@@ -2406,7 +2496,7 @@ def request_search_index_backfill(
     workspace_id: Annotated[
         str | None,
         Field(
-            description=WORKSPACE_ID_TIP_TEXT,
+            description=RESOURCE_WORKSPACE_ID_TIP_TEXT,
             default=None,
         ),
         TraceArg.OMIT,
@@ -2441,7 +2531,9 @@ def request_search_index_backfill(
             guidance="Use a timestamp with a timezone, for example `2026-01-01T00:00:00Z`.",
             input_value=backfill_start_time,
         ) from None
-    connection = _get_cloud_workspace(ctx, workspace_id).get_connection(connection_id)
+    connection = _get_cloud_workspace_for_resource(
+        ctx, workspace_id, connection_id=connection_id
+    ).get_connection(connection_id)
     return connection.request_search_index_backfill(
         streams=resolve_list_of_strings(streams),
         backfill_start_time=start_time,
@@ -2469,14 +2561,16 @@ def check_connector(
     workspace_id: Annotated[
         str | None,
         Field(
-            description=WORKSPACE_ID_TIP_TEXT,
+            description=RESOURCE_WORKSPACE_ID_TIP_TEXT,
             default=None,
         ),
         TraceArg.OMIT,
     ],
 ) -> ConnectorCheckResult:
     """Check the configuration and credentials of a deployed source or destination."""
-    workspace: CloudWorkspace = _get_cloud_workspace(ctx, workspace_id)
+    workspace: CloudWorkspace = _get_cloud_workspace_for_resource(
+        ctx, workspace_id, connector_id=connector_id, connector_type=connector_type
+    )
     connector = _get_cloud_connector(workspace, connector_id, connector_type)
     check_result = connector.check(raise_on_error=False)
     return ConnectorCheckResult(
@@ -2501,14 +2595,16 @@ def describe_connection(
     workspace_id: Annotated[
         str | None,
         Field(
-            description=WORKSPACE_ID_TIP_TEXT,
+            description=RESOURCE_WORKSPACE_ID_TIP_TEXT,
             default=None,
         ),
         TraceArg.OMIT,
     ],
 ) -> CloudConnectionDetails:
     """Get detailed information about a specific deployed connection."""
-    workspace: CloudWorkspace = _get_cloud_workspace(ctx, workspace_id)
+    workspace: CloudWorkspace = _get_cloud_workspace_for_resource(
+        ctx, workspace_id, connection_id=connection_id
+    )
     connection = workspace.get_connection(connection_id=connection_id)
 
     return CloudConnectionDetails(
@@ -2550,7 +2646,7 @@ def get_connection_sync_logs(
     workspace_id: Annotated[
         str | None,
         Field(
-            description=WORKSPACE_ID_TIP_TEXT,
+            description=RESOURCE_WORKSPACE_ID_TIP_TEXT,
             default=None,
         ),
         TraceArg.OMIT,
@@ -2598,7 +2694,9 @@ def get_connection_sync_logs(
 
     if from_tail is None and line_offset is None:
         from_tail = True
-    workspace: CloudWorkspace = _get_cloud_workspace(ctx, workspace_id)
+    workspace: CloudWorkspace = _get_cloud_workspace_for_resource(
+        ctx, workspace_id, connection_id=connection_id
+    )
     connection = workspace.get_connection(connection_id=connection_id)
 
     sync_result: SyncResult | None = connection.get_sync_result(job_id=job_id)
@@ -2714,7 +2812,12 @@ def list_connections(
     with_connection_status: Annotated[
         bool | None,
         Field(
-            description="If True, include status info for each connection's most recent sync job",
+            description=(
+                "If True, look up each connection's most recent sync job and populate the "
+                "`last_job_*` and `currently_running_job_*` fields. Defaults to False, in which "
+                "case those fields are always null (`sync_status_fetched=False`) even if the "
+                "connection has run jobs. Requires one extra API call per connection."
+            ),
             default=False,
         ),
     ],
@@ -2731,9 +2834,13 @@ def list_connections(
     Each connection links a source to a destination; use `list_connectors` to list those
     deployed resources.
 
-    When with_connection_status is True, each connection result will include
+    When `with_connection_status` is True, each connection result will include
     information about the most recent sync job status, skipping over any
-    currently in-progress syncs to find the last completed job.
+    currently in-progress syncs to find the last completed job. When it is
+    False (the default), the `last_job_*` fields are always null and
+    `sync_status_fetched` is False; a null `last_job_status` does NOT mean the
+    connection has never run. Use `get_connection_sync_status` or
+    `list_connection_sync_jobs` for a single connection's job history.
 
     When failing_connections_only is True, only connections where the most
     recent completed sync job failed or was cancelled will be returned.
@@ -2793,6 +2900,7 @@ def list_connections(
                 url=cast(str, connection.connection_url),
                 source_id=connection.source_id,
                 destination_id=connection.destination_id,
+                sync_status_fetched=bool(with_connection_status),
                 last_job_status=last_job_status,
                 last_job_id=last_job_id,
                 last_job_time=last_job_time,
@@ -3833,7 +3941,7 @@ def permanently_delete_connector(
     workspace_id: Annotated[
         str | None,
         Field(
-            description=WORKSPACE_ID_TIP_TEXT,
+            description=RESOURCE_WORKSPACE_ID_TIP_TEXT,
             default=None,
         ),
         TraceArg.OMIT,
@@ -3845,7 +3953,9 @@ def permanently_delete_connector(
     This is a safety measure to ensure you are deleting the correct resource.
     """
     check_guid_created_in_session(connector_id)
-    workspace: CloudWorkspace = _get_cloud_workspace(ctx, workspace_id)
+    workspace: CloudWorkspace = _get_cloud_workspace_for_resource(
+        ctx, workspace_id, connector_id=connector_id, connector_type=connector_type
+    )
     connector = _get_cloud_connector(workspace, connector_id, connector_type)
     actual_name: str = cast(str, connector.name)
     resolved_type = connector.connector_type
@@ -3918,7 +4028,7 @@ def permanently_delete_connection(
     workspace_id: Annotated[
         str | None,
         Field(
-            description=WORKSPACE_ID_TIP_TEXT,
+            description=RESOURCE_WORKSPACE_ID_TIP_TEXT,
             default=None,
         ),
         TraceArg.OMIT,
@@ -3930,7 +4040,9 @@ def permanently_delete_connection(
     This is a safety measure to ensure you are deleting the correct resource.
     """
     check_guid_created_in_session(connection_id)
-    workspace: CloudWorkspace = _get_cloud_workspace(ctx, workspace_id)
+    workspace: CloudWorkspace = _get_cloud_workspace_for_resource(
+        ctx, workspace_id, connection_id=connection_id
+    )
     connection = workspace.get_connection(connection_id=connection_id)
     actual_name: str = cast(str, connection.name)
 
@@ -3986,14 +4098,16 @@ def rename_connector(
     workspace_id: Annotated[
         str | None,
         Field(
-            description=WORKSPACE_ID_TIP_TEXT,
+            description=RESOURCE_WORKSPACE_ID_TIP_TEXT,
             default=None,
         ),
         TraceArg.OMIT,
     ],
 ) -> str:
     """Rename a deployed source or destination connector on Airbyte Cloud."""
-    workspace: CloudWorkspace = _get_cloud_workspace(ctx, workspace_id)
+    workspace: CloudWorkspace = _get_cloud_workspace_for_resource(
+        ctx, workspace_id, connector_id=connector_id, connector_type=connector_type
+    )
     connector = _get_typed_cloud_connector(workspace, connector_id, connector_type)
     connector.rename(name=name)
     return (
@@ -4037,7 +4151,7 @@ def update_connector_config(
     workspace_id: Annotated[
         str | None,
         Field(
-            description=WORKSPACE_ID_TIP_TEXT,
+            description=RESOURCE_WORKSPACE_ID_TIP_TEXT,
             default=None,
         ),
         TraceArg.OMIT,
@@ -4049,7 +4163,9 @@ def update_connector_config(
     configuration is changed incorrectly. Use with caution.
     """
     check_guid_created_in_session(connector_id)
-    workspace: CloudWorkspace = _get_cloud_workspace(ctx, workspace_id)
+    workspace: CloudWorkspace = _get_cloud_workspace_for_resource(
+        ctx, workspace_id, connector_id=connector_id, connector_type=connector_type
+    )
     connector = _get_typed_cloud_connector(workspace, connector_id, connector_type)
 
     config_dict = resolve_connector_config(
@@ -4084,14 +4200,16 @@ def rename_connection(
     workspace_id: Annotated[
         str | None,
         Field(
-            description=WORKSPACE_ID_TIP_TEXT,
+            description=RESOURCE_WORKSPACE_ID_TIP_TEXT,
             default=None,
         ),
         TraceArg.OMIT,
     ],
 ) -> str:
     """Rename a connection on Airbyte Cloud."""
-    workspace: CloudWorkspace = _get_cloud_workspace(ctx, workspace_id)
+    workspace: CloudWorkspace = _get_cloud_workspace_for_resource(
+        ctx, workspace_id, connection_id=connection_id
+    )
     connection = workspace.get_connection(connection_id=connection_id)
     connection.rename(name=name)
     return (
@@ -4119,7 +4237,7 @@ def set_connection_table_prefix(
     workspace_id: Annotated[
         str | None,
         Field(
-            description=WORKSPACE_ID_TIP_TEXT,
+            description=RESOURCE_WORKSPACE_ID_TIP_TEXT,
             default=None,
         ),
         TraceArg.OMIT,
@@ -4131,7 +4249,9 @@ def set_connection_table_prefix(
     table prefix is changed incorrectly. Use with caution.
     """
     check_guid_created_in_session(connection_id)
-    workspace: CloudWorkspace = _get_cloud_workspace(ctx, workspace_id)
+    workspace: CloudWorkspace = _get_cloud_workspace_for_resource(
+        ctx, workspace_id, connection_id=connection_id
+    )
     connection = workspace.get_connection(connection_id=connection_id)
     connection.set_table_prefix(prefix=prefix)
     return (
@@ -4164,7 +4284,7 @@ def set_connection_selected_streams(
     workspace_id: Annotated[
         str | None,
         Field(
-            description=WORKSPACE_ID_TIP_TEXT,
+            description=RESOURCE_WORKSPACE_ID_TIP_TEXT,
             default=None,
         ),
         TraceArg.OMIT,
@@ -4176,7 +4296,9 @@ def set_connection_selected_streams(
     stream selection is changed incorrectly. Use with caution.
     """
     check_guid_created_in_session(connection_id)
-    workspace: CloudWorkspace = _get_cloud_workspace(ctx, workspace_id)
+    workspace: CloudWorkspace = _get_cloud_workspace_for_resource(
+        ctx, workspace_id, connection_id=connection_id
+    )
     connection = workspace.get_connection(connection_id=connection_id)
 
     resolved_streams_list: list[str] = resolve_list_of_strings(stream_names)
@@ -4258,7 +4380,9 @@ def _update_cloud_connection_impl(  # noqa: PLR0913
         apply_discover_request_id=apply_discover_request_id,
     )
 
-    workspace: CloudWorkspace = _get_cloud_workspace(ctx, workspace_id)
+    workspace: CloudWorkspace = _get_cloud_workspace_for_resource(
+        ctx, workspace_id, connection_id=connection_id
+    )
     connection = workspace.get_connection(connection_id=connection_id)
 
     stream_config_result = _apply_stream_config_overrides(
@@ -4392,7 +4516,7 @@ def update_connection(  # noqa: PLR0913
     workspace_id: Annotated[
         str | None,
         Field(
-            description=WORKSPACE_ID_TIP_TEXT,
+            description=RESOURCE_WORKSPACE_ID_TIP_TEXT,
             default=None,
         ),
         TraceArg.OMIT,
@@ -4516,7 +4640,7 @@ def update_connection_unsafe(  # noqa: PLR0913
     workspace_id: Annotated[
         str | None,
         Field(
-            description=WORKSPACE_ID_TIP_TEXT,
+            description=RESOURCE_WORKSPACE_ID_TIP_TEXT,
             default=None,
         ),
         TraceArg.OMIT,
@@ -4609,7 +4733,7 @@ def discover_source_catalog(
     workspace_id: Annotated[
         str | None,
         Field(
-            description=WORKSPACE_ID_TIP_TEXT,
+            description=RESOURCE_WORKSPACE_ID_TIP_TEXT,
             default=None,
         ),
         TraceArg.OMIT,
@@ -4645,7 +4769,12 @@ def discover_source_catalog(
                     "`discover_request_id`, or `no_refresh`."
                 ),
             )
-        workspace: CloudWorkspace = _get_cloud_workspace(ctx, workspace_id)
+        if compare_to_connection_id is not None:
+            workspace: CloudWorkspace = _get_cloud_workspace_for_resource(
+                ctx, workspace_id, connection_id=compare_to_connection_id
+            )
+        else:
+            workspace = _get_cloud_workspace(ctx, workspace_id)
         return workspace.compare_source_catalogs(
             source_catalog_id=source_catalog_id,
             compare_to_source_catalog_id=compare_to_source_catalog_id,
@@ -4666,11 +4795,17 @@ def discover_source_catalog(
             message="Provide `source_id` or `discover_request_id`.",
         )
 
-    workspace: CloudWorkspace = _get_cloud_workspace(ctx, workspace_id)
     if discover_request_id is not None:
-        return workspace.get_catalog_discover_result(discover_request_id)
+        if workspace_id:
+            return _get_cloud_workspace(ctx, workspace_id).get_catalog_discover_result(
+                discover_request_id
+            )
+        return _get_cloud_client(ctx).get_catalog_discover_result(discover_request_id)
 
     assert source_id is not None
+    workspace: CloudWorkspace = _get_cloud_workspace_for_resource(
+        ctx, workspace_id, connector_id=source_id, connector_type=ConnectorType.SOURCE
+    )
     source = workspace.get_source(source_id=source_id)
     if no_refresh:
         return source.get_latest_saved_catalog()
@@ -4695,7 +4830,7 @@ def get_connection_artifact(
     workspace_id: Annotated[
         str | None,
         Field(
-            description=WORKSPACE_ID_TIP_TEXT,
+            description=RESOURCE_WORKSPACE_ID_TIP_TEXT,
             default=None,
         ),
         TraceArg.OMIT,
@@ -4712,7 +4847,9 @@ def get_connection_artifact(
     - `catalog`: Returns the protocol-format `ConfiguredAirbyteCatalog` dict,
       or `{"ERROR": "..."}` if not found.
     """
-    workspace: CloudWorkspace = _get_cloud_workspace(ctx, workspace_id)
+    workspace: CloudWorkspace = _get_cloud_workspace_for_resource(
+        ctx, workspace_id, connection_id=connection_id
+    )
     connection = workspace.get_connection(connection_id=connection_id)
 
     if artifact_type == "state":

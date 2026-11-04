@@ -1,7 +1,9 @@
 # Copyright (c) 2026 Airbyte, Inc., all rights reserved.
 from __future__ import annotations
 
-from unittest.mock import patch
+from types import SimpleNamespace
+from typing import Literal
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -48,6 +50,127 @@ def test_authenticated_user_is_not_in_client_repr() -> None:
     client = CloudClient(bearer_token="token")
 
     assert "_authenticated_user_info" not in repr(client)
+
+
+def _public_api_auth_kwargs(client: CloudClient) -> dict[str, object]:
+    return {
+        "api_root": client.public_api_root,
+        "client_id": client.client_id,
+        "client_secret": client.client_secret,
+        "bearer_token": client.bearer_token,
+    }
+
+
+def _config_api_auth_kwargs(client: CloudClient) -> dict[str, object]:
+    return {
+        "api_root": client.public_api_root,
+        "config_api_root": client.config_api_root,
+        "client_id": client.client_id,
+        "client_secret": client.client_secret,
+        "bearer_token": client.bearer_token,
+    }
+
+
+def test_get_connection_workspace_id_uses_connection_response_workspace() -> None:
+    client = CloudClient(bearer_token="token")
+    response = SimpleNamespace(workspace_id="workspace-id")
+
+    with patch(
+        "airbyte._util.api_util.get_connection", return_value=response
+    ) as get_connection:
+        workspace_id = client.get_connection_workspace_id("connection-id")
+
+    assert workspace_id == "workspace-id"
+    get_connection.assert_called_once_with(
+        connection_id="connection-id",
+        **_public_api_auth_kwargs(client),
+    )
+
+
+@pytest.mark.parametrize(
+    ("connector_type", "expected_lookup", "expected_id_arg"),
+    [
+        ("source", "get_source", "source_id"),
+        ("destination", "get_destination", "destination_id"),
+        (None, "get_connector", "connector_id"),
+    ],
+)
+def test_get_connector_workspace_id_routes_to_expected_lookup(
+    connector_type: Literal["source", "destination"] | None,
+    expected_lookup: str,
+    expected_id_arg: str,
+) -> None:
+    client = CloudClient(bearer_token="token")
+    response = SimpleNamespace(workspace_id="workspace-id")
+
+    with (
+        patch("airbyte._util.api_util.get_source", return_value=response) as get_source,
+        patch(
+            "airbyte._util.api_util.get_destination", return_value=response
+        ) as get_destination,
+        patch(
+            "airbyte._util.api_util.get_connector",
+            return_value=("source", response),
+        ) as get_connector,
+    ):
+        workspace_id = client.get_connector_workspace_id("connector-id", connector_type)
+
+    assert workspace_id == "workspace-id"
+    lookups = {
+        "get_source": get_source,
+        "get_destination": get_destination,
+        "get_connector": get_connector,
+    }
+    expected_call_args = {
+        expected_id_arg: "connector-id",
+        **_public_api_auth_kwargs(client),
+    }
+    lookups[expected_lookup].assert_called_once_with(**expected_call_args)
+    for lookup_name, lookup in lookups.items():
+        if lookup_name != expected_lookup:
+            lookup.assert_not_called()
+
+
+def test_get_catalog_discover_result_uses_client_credentials() -> None:
+    client = CloudClient(
+        client_id="client-id",
+        client_secret="client-secret",
+        public_api_root="https://api.example/v1",
+        config_api_root="https://config.example/v1",
+    )
+    get_command_status = MagicMock(return_value={"status": "running"})
+
+    with patch("airbyte._util.api_util.get_command_status", get_command_status):
+        result = client.get_catalog_discover_result("request-id")
+
+    assert result.discover_request_id == "request-id"
+    assert result.request_status == "running"
+    get_command_status.assert_called_once_with(
+        "request-id",
+        **_config_api_auth_kwargs(client),
+    )
+
+
+def test_get_connection_workspace_id_propagates_missing_resource_error() -> None:
+    client = CloudClient(bearer_token="token")
+    error = exc.AirbyteMissingResourceError(
+        resource_type="connection",
+        resource_name_or_id="missing-connection",
+    )
+
+    with (
+        patch(
+            "airbyte._util.api_util.get_connection", side_effect=error
+        ) as get_connection,
+        pytest.raises(exc.AirbyteMissingResourceError) as exc_info,
+    ):
+        client.get_connection_workspace_id("missing-connection")
+
+    assert exc_info.value is error
+    get_connection.assert_called_once_with(
+        connection_id="missing-connection",
+        **_public_api_auth_kwargs(client),
+    )
 
 
 def test_get_workspace_uses_authenticated_user_default_workspace() -> None:
