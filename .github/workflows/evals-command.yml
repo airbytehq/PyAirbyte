@@ -129,7 +129,7 @@ jobs:
         # A changed-tools run with nothing to run uploads no evidence; any other
         # listing or download failure fails the job.
         artifacts=$(gh api "repos/$EVALS_REPO/actions/runs/$RUN_ID/artifacts" --paginate --slurp \
-          --jq '[.[].artifacts[] | select(.expired != true) | select(.name | startswith("all-evidence-"))]')
+          | jq '[.[].artifacts[] | select(.expired != true) | select(.name | startswith("all-evidence-"))]')
         head_artifact=$(jq -r '[.[] | select(.name | endswith("-base") | not)] | max_by(.id) | .name // empty' <<< "$artifacts")
         results=""
         if [ -n "$head_artifact" ]; then
