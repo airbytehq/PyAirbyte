@@ -115,18 +115,19 @@ def parse_manifest_yaml(manifest_yaml: dict[str, Any] | Path | str) -> dict[str,
 
 
 def builder_testing_values_spec(manifest: dict[str, Any]) -> dict[str, Any]:
-    """Build the `spec` object that the testing-values API expects, as the Builder UI does."""
-    manifest_spec = manifest.get("spec") or {}
-    return {
-        "documentationUrl": manifest_spec.get("documentation_url"),
-        "connectionSpecification": manifest_spec.get("connection_specification") or {},
-        "advancedAuth": manifest_spec.get("advanced_auth"),
-    }
+    """Return the connection JSON schema expected by the testing-values API."""
+    return (manifest.get("spec") or {}).get("connection_specification") or {}
 
 
 def publish_spec(manifest: dict[str, Any]) -> dict[str, Any]:
     """Build the connector spec for publishing, with the API's camelCase field names."""
-    return {**(manifest.get("spec") or {}), **builder_testing_values_spec(manifest)}
+    manifest_spec = manifest.get("spec") or {}
+    return {
+        **manifest_spec,
+        "documentationUrl": manifest_spec.get("documentation_url"),
+        "connectionSpecification": builder_testing_values_spec(manifest),
+        "advancedAuth": manifest_spec.get("advanced_auth"),
+    }
 
 
 def draft_from_project_data(project_data: dict[str, Any]) -> dict[str, Any] | None:
