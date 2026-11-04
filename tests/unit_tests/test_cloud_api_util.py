@@ -2063,7 +2063,7 @@ def test_config_api_request_sends_analytic_source_header(
 
     def fake_request(**kwargs: object) -> SimpleNamespace:
         captured.update(kwargs)
-        return SimpleNamespace(status_code=200, json=lambda: {})
+        return SimpleNamespace(status_code=200, content=b"{}", json=lambda: {})
 
     monkeypatch.setattr(api_util.requests, "request", fake_request)
 
@@ -2081,11 +2081,14 @@ def test_config_api_request_sends_analytic_source_header(
     assert headers[meta.AIRBYTE_CLOUD_ANALYTIC_SOURCE_HEADER] == "pyairbyte-mcp-hosted"
 
 
-def test_config_api_request_handles_no_content_response(
+@pytest.mark.parametrize("status_code", [200, 201, 202, 204])
+def test_config_api_request_handles_empty_success_response(
     monkeypatch: pytest.MonkeyPatch,
+    status_code: int,
 ) -> None:
     response = requests.Response()
-    response.status_code = 204
+    response.status_code = status_code
+    response._content = b""
     response.url = "https://config.airbyte.com/v1/connector_builder_projects/update"
     response.request = requests.Request("POST", response.url).prepare()
     monkeypatch.setattr(api_util.requests, "request", Mock(return_value=response))
@@ -2101,6 +2104,32 @@ def test_config_api_request_handles_no_content_response(
     )
 
     assert result == {}
+
+
+@pytest.mark.parametrize("body", [b'{"version": 2}', b"not json"])
+def test_config_api_request_parses_nonempty_response(
+    monkeypatch: pytest.MonkeyPatch,
+    body: bytes,
+) -> None:
+    response = requests.Response()
+    response.status_code = 201
+    response._content = body
+    monkeypatch.setattr(api_util.requests, "request", Mock(return_value=response))
+
+    kwargs: dict[str, Any] = {
+        "path": "/declarative_source_definitions/create_manifest",
+        "json": {},
+        "api_root": "https://api.example/v1",
+        "config_api_root": "https://config.example/v1",
+        "client_id": None,
+        "client_secret": None,
+        "bearer_token": SecretString("token"),
+    }
+    if body == b"not json":
+        with pytest.raises(requests.exceptions.JSONDecodeError):
+            api_util._make_config_api_request(**kwargs)
+    else:
+        assert api_util._make_config_api_request(**kwargs) == {"version": 2}
 
 
 def test_list_connector_builder_projects(monkeypatch: pytest.MonkeyPatch) -> None:
