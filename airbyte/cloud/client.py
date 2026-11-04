@@ -119,6 +119,7 @@ class CloudClient:
     _user_permissions: tuple[dict[str, Any], ...] | None
     _direct_workspace_infos: dict[str, CloudWorkspaceInfo | None]
     _workspace_organizations: dict[str, CloudOrganizationInfo | None]
+    _organization_infos: dict[str, CloudOrganizationInfo | None]
     _validated_direct_workspace_result: tuple[list[CloudWorkspaceInfo], int] | None
     _authenticated_user_info: dict[str, Any] | None = field(repr=False)
     _authenticated_user_id: str | None = field(repr=False)
@@ -150,6 +151,7 @@ class CloudClient:
         self._user_permissions = None
         self._direct_workspace_infos = {}
         self._workspace_organizations = {}
+        self._organization_infos = {}
         self._validated_direct_workspace_result = None
         self._authenticated_user_info = None
         self._authenticated_user_id = None
@@ -704,6 +706,11 @@ class CloudClient:
         if user_default_workspace_id:
             return user_default_workspace_id
         try:
+            direct_ids = self._get_direct_workspace_ids()
+            if not direct_ids:
+                return None
+            if len(direct_ids) == 1:
+                return direct_ids[0]
             live_workspaces, unvalidated_count = self._validate_direct_workspaces()
         except (AirbyteError, exc.PyAirbyteInputError):
             return None
@@ -758,21 +765,45 @@ class CloudClient:
         return tuple(workspace_ids)
 
     def _get_direct_workspace_info(self, workspace_id: str) -> CloudWorkspaceInfo | None:
-        """Fetch a directly granted workspace, or `None` if the grant is stale (404)."""
+        """Describe a directly granted workspace via the Config API.
+
+        Returns `None` for stale grants (missing or tombstoned workspaces), which
+        platforms that predate tombstone filtering in `permissions/list_by_user`
+        may still return.
+        """
         if workspace_id in self._direct_workspace_infos:
             return self._direct_workspace_infos[workspace_id]
         try:
-            workspace = api_util.get_workspace(
-                workspace_id=workspace_id,
+            workspace = api_util.get_workspace_config_api(
+                workspace_id,
                 api_root=self.public_api_root,
+                config_api_root=self.config_api_root,
                 client_id=self.client_id,
                 client_secret=self.client_secret,
-                bearer_token=self.bearer_token,
+                bearer_token=self._get_config_api_bearer_token(),
             )
         except exc.AirbyteMissingResourceError:
             self._direct_workspace_infos[workspace_id] = None
             return None
-        workspace_info = CloudWorkspaceInfo.from_api_response(workspace)
+        except exc.AirbyteError as error:
+            if (error.context or {}).get("status_code") == HTTPStatus.NOT_FOUND:
+                self._direct_workspace_infos[workspace_id] = None
+                return None
+            raise
+        name = workspace.get("name")
+        if workspace.get("tombstone") or not isinstance(name, str) or not name:
+            self._direct_workspace_infos[workspace_id] = None
+            return None
+        organization_id = workspace.get("organizationId")
+        data_residency = workspace.get("defaultGeography")
+        notifications = workspace.get("notifications")
+        workspace_info = CloudWorkspaceInfo(
+            workspace_id=workspace_id,
+            name=name,
+            organization_id=(organization_id if isinstance(organization_id, str) else None),
+            data_residency=data_residency if isinstance(data_residency, str) else None,
+            notifications=notifications if isinstance(notifications, (list, dict)) else {},
+        )
         self._direct_workspace_infos[workspace_id] = workspace_info
         return workspace_info
 
@@ -811,8 +842,25 @@ class CloudClient:
         self._workspace_organizations[workspace_id] = organization_info
         return organization_info
 
+    def _get_organization_for_workspace(
+        self, workspace: CloudWorkspaceInfo
+    ) -> CloudOrganizationInfo | None:
+        """Fetch the parent organization for a workspace, cached per organization."""
+        organization_id = workspace.organization_id
+        if organization_id is None:
+            return self._get_workspace_organization(workspace.workspace_id)
+        if organization_id not in self._organization_infos:
+            self._organization_infos[organization_id] = self._get_workspace_organization(
+                workspace.workspace_id
+            )
+        return self._organization_infos[organization_id]
+
     def _validate_direct_workspaces(self) -> tuple[list[CloudWorkspaceInfo], int]:
-        """Validate direct workspace grants once within the configured cap."""
+        """Describe direct workspace grants once within the configured cap.
+
+        Stale grants (missing or tombstoned workspaces) are dropped; platforms
+        that no longer return them are unaffected.
+        """
         if self._validated_direct_workspace_result is not None:
             return self._validated_direct_workspace_result
         workspace_ids = self._get_direct_workspace_ids()
@@ -821,7 +869,7 @@ class CloudClient:
             workspace = self._get_direct_workspace_info(workspace_id)
             if workspace is None:
                 continue
-            organization = self._get_workspace_organization(workspace_id)
+            organization = self._get_organization_for_workspace(workspace)
             if organization is not None:
                 workspace = workspace.model_copy(
                     update={
@@ -894,8 +942,8 @@ class CloudClient:
             except (AirbyteError, exc.PyAirbyteInputError):
                 default_workspace_info = None
             if default_workspace_info is not None:
-                default_workspace_organization = self._get_workspace_organization(
-                    default_workspace_id
+                default_workspace_organization = self._get_organization_for_workspace(
+                    default_workspace_info
                 )
         discovery_hints: list[str] = []
         if any(permission.get("permissionType") == "instance_admin" for permission in permissions):
