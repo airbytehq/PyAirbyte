@@ -4,6 +4,7 @@ target-version = "py311"
 preview = true
 line-length = 100
 
+[lint]
 select = [
     # For rules reference, see https://docs.astral.sh/ruff/rules/
     "A",     # flake8-builtins
@@ -28,7 +29,6 @@ select = [
     "FLY",   # flynt
     "FURB",  # Refurb
     "I",     # isort
-    "ICN",   # flake8-import-conventions
     "INP",   # flake8-no-pep420
     "INT",   # flake8-gettext
     "ISC",   # flake8-implicit-str-concat
@@ -56,13 +56,11 @@ select = [
     "TD",     # flake8-todos
     "TID",    # flake8-tidy-imports
     "TRY",    # tryceratops
-    "TRY002", # Disallow raising vanilla Exception. Create or use a custom exception instead.
     "UP",     # pyupgrade
     "W",      # pycodestyle (warnings)
     "YTT",    # flake8-2020
 ]
 
-[lint]
 ignore = [
     # For rules reference, see https://docs.astral.sh/ruff/rules/
 
