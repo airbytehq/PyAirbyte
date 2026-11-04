@@ -720,6 +720,48 @@ def test_cached_dataset_filter() -> None:
         )
 
 
+@pytest.mark.parametrize("conversion", ["pandas", "arrow"])
+@pytest.mark.parametrize(
+    ("filter_expression", "expected_values"),
+    [("column2 = 1", [1]), ("column2 < 0", [])],
+    ids=["matching", "empty"],
+)
+def test_filtered_dataset_conversions(
+    conversion: str,
+    filter_expression: str,
+    expected_values: list[int],
+) -> None:
+    """Conversions must retain the same filter as SQL iteration, including empty results."""
+    source = ab.get_source("source-test", config={"apiKey": "test"})
+    source.select_all_streams()
+
+    with ab.new_local_cache() as cache:
+        result = source.read(cache)
+        original = result["stream1"]
+        filtered = original.with_filter(filter_expression)
+        assert [record["column2"] for record in filtered] == expected_values
+
+        if conversion == "pandas":
+            converted = filtered.to_pandas()
+            assert converted["column2"].tolist() == expected_values
+            assert set(converted.columns) == {
+                "column1",
+                "column2",
+                "sometimes_object",
+                *AB_INTERNAL_COLUMNS,
+            }
+        else:
+            converted = filtered.to_arrow(max_chunk_size=1)
+            assert converted.to_table().column("column2").to_pylist() == expected_values
+            assert set(converted.schema.names) == {
+                "column1",
+                "column2",
+                "sometimes_object",
+                *AB_INTERNAL_COLUMNS,
+            }
+            assert all(batch.num_rows <= 1 for batch in converted.to_batches())
+
+
 def test_lazy_dataset_from_source(
     expected_test_stream_data: dict[str, list[dict[str, str | int]]],
 ) -> None:
