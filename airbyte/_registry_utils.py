@@ -88,7 +88,13 @@ def fetch_registry_version_date(connector_name: str, version: str) -> str | None
 
     Returns the release date string (YYYY-MM-DD) if found, None otherwise.
     """
-    try:  # noqa: PLR1702
+    # TK: C007/collapsible_if; complexity 16 -> 8; measured=True.
+    # TK: Suggested replacement: if version in release_candidates and commit_timestamp and date_match:  # noqa: E501
+    # TK: Applied continue guards for nonmatching repositories and preserved
+    # TK: the matching-connector break.
+    # TK: Reviewer: confirm the for-else, broad debug exception, early return,
+    # TK: and trailing return semantics.
+    try:
         registry_url = "https://connectors.airbyte.com/files/registries/v0/oss_registry.json"
         response = requests.get(registry_url, timeout=10)
         response.raise_for_status()
@@ -98,22 +104,24 @@ def fetch_registry_version_date(connector_name: str, version: str) -> str | None
 
         for connector in connector_list:
             docker_repo = connector.get("dockerRepository", "")
-            if docker_repo == f"airbyte/{connector_name}":
-                releases = connector.get("releases", {})
-                release_candidates = releases.get("releaseCandidates", {})
+            if docker_repo != f"airbyte/{connector_name}":
+                continue
 
-                if version in release_candidates:
-                    version_data = release_candidates[version]
-                    generated = version_data.get("generated", {})
-                    git_info = generated.get("git", {})
-                    commit_timestamp = git_info.get("commit_timestamp")
+            releases = connector.get("releases", {})
+            release_candidates = releases.get("releaseCandidates", {})
 
-                    if commit_timestamp:
-                        date_match = re.match(r"(\d{4}-\d{2}-\d{2})", commit_timestamp)
-                        if date_match:
-                            return date_match.group(1)
+            if version in release_candidates:
+                version_data = release_candidates[version]
+                generated = version_data.get("generated", {})
+                git_info = generated.get("git", {})
+                commit_timestamp = git_info.get("commit_timestamp")
 
-                break
+                if commit_timestamp:
+                    date_match = re.match(r"(\d{4}-\d{2}-\d{2})", commit_timestamp)
+                    if date_match:
+                        return date_match.group(1)
+
+            break
         else:
             return None
     except Exception as e:
