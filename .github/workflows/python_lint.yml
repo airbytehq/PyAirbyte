@@ -14,7 +14,7 @@ permissions:
 jobs:
   ruff-lint-check:
     name: Ruff Lint Check
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
     # Common steps:
     - name: Checkout code
@@ -34,7 +34,7 @@ jobs:
 
   ruff-format-check:
     name: Ruff Format Check
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
     # Common steps:
     - name: Checkout code
@@ -54,7 +54,7 @@ jobs:
 
   python-type-checks:
     name: Python Type Checks
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
     # Common steps:
     - name: Checkout code
@@ -74,7 +74,7 @@ jobs:
 
   public-api-import-guard:
     name: Public API Import Guard
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
     # Common steps:
     - name: Checkout code

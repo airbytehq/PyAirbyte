@@ -71,7 +71,7 @@ concurrency:
 jobs:
   resolve-vars:
     name: Resolve Variables
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     outputs:
       trigger_type: ${{ steps.resolve-vars.outputs.trigger_type }}
       requirement: ${{ steps.resolve-vars.outputs.requirement }}
@@ -196,7 +196,7 @@ jobs:
     name: Deploy to Internal Endpoints
     needs: resolve-vars
     if: needs.resolve-vars.outputs.deploy_internal_preview == 'true' || needs.resolve-vars.outputs.deploy_internal == 'true'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - name: Build cloud-mcp dispatch payloads
         id: build-dispatch-payload
@@ -258,7 +258,7 @@ jobs:
     name: Deploy to Prod Endpoints
     needs: resolve-vars
     if: needs.resolve-vars.outputs.deploy_prod == 'true'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - name: Build platform-internal dispatch payload
         id: build-dispatch-payload
@@ -318,7 +318,7 @@ jobs:
     name: Summarize
     needs: [resolve-vars, deploy-internal, deploy-prod]
     if: always() && needs.resolve-vars.result == 'success'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - name: Summarize dispatch
         env:

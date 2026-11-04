@@ -16,7 +16,7 @@ permissions:
 
 jobs:
   run-poe-command:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - name: Authenticate as GitHub App
         uses: actions/create-github-app-token@v2

@@ -34,7 +34,7 @@ env:
 jobs:
   publish_to_pypi:
     name: Publish Package to PyPI
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     permissions:
       id-token: write
       contents: read
