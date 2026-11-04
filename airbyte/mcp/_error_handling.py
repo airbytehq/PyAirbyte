@@ -96,7 +96,6 @@ MCP_TOOL_USER_FACING_ERRORS: tuple[type[AirbyteLibError], ...] = (
     AirbyteConnectorNotReadyError,
     AirbyteConnectorInUseError,
     AirbyteMissingResourceError,
-    AirbyteWorkspaceMismatchError,
 )
 """Expected errors returned to MCP clients as concise message and guidance text."""
 
@@ -216,7 +215,11 @@ def classify_mcp_tool_error(error: BaseException) -> str | None:
     A failed or timed-out sync job carries no HTTP status, so the built-in
     rules would report it as `unclassified` with an unknown fault. Sync errors raised
     from an API call have no `job_status` and keep the status-code category.
+    Workspace mismatches are caller errors but stay out of agent text because their
+    message names the owning workspace.
     """
+    if isinstance(error, AirbyteWorkspaceMismatchError):
+        return "user_error"
     if not isinstance(error, AirbyteConnectionSyncError) or error.job_status is None:
         return None
     if isinstance(error, AirbyteConnectionSyncTimeoutError):
@@ -249,6 +252,10 @@ def agent_error_text(error: ToolError) -> str:
     if (problem := _cloud_error_info(error)) is not None:
         return _cloud_problem_text(problem)
     cause = error.__cause__
+    if isinstance(cause, AirbyteWorkspaceMismatchError):
+        return (
+            type(cause).__doc__ or "Resource does not belong to the expected workspace."
+        ).splitlines()[0]
     if isinstance(cause, AirbyteLibError):
         return format_user_facing_error(cause)
     return str(error)
