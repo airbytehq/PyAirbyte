@@ -39,10 +39,10 @@ In addition, the following principles are applied for exception class design:
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from textwrap import indent
-from typing import TYPE_CHECKING, Any, Protocol
+from typing import TYPE_CHECKING, Any, Protocol, overload
 
 from airbyte._util.meta import is_mcp_mode
 from airbyte.constants import (
@@ -66,6 +66,35 @@ DOCS_URL = f"{DOCS_URL_BASE}/airbyte.html"
 VERTICAL_SEPARATOR = "\n" + "-" * 60
 
 
+class _CauseDescriptor:
+    @overload
+    def __get__(self, instance: None, owner: type[Any] | None = None) -> None: ...
+
+    @overload
+    def __get__(
+        self,
+        instance: AirbyteLibError,
+        owner: type[Any] | None = None,
+    ) -> BaseException | None: ...
+
+    def __get__(
+        self,
+        instance: AirbyteLibError | None,
+        owner: type[Any] | None = None,
+    ) -> BaseException | None:
+        if instance is None:
+            return None
+        return instance.__cause__
+
+    def __set__(self, instance: AirbyteLibError, value: BaseException | None) -> None:
+        if value is None or value is self:
+            instance.__dict__["_original_exception_opt_in"] = False
+            return
+
+        instance.__cause__ = value
+        instance.__dict__["_original_exception_opt_in"] = True
+
+
 # Base error class
 
 
@@ -80,7 +109,7 @@ class AirbyteLibError(Exception):
     print_full_log: bool = AIRBYTE_PRINT_FULL_ERROR_LOGS
     context: dict[str, Any] | None = None
     message: str | None = None
-    original_exception: Exception | None = None
+    original_exception: _CauseDescriptor = field(default=_CauseDescriptor(), repr=False)
 
     def get_message(self) -> str:
         """Return the best description for the exception.
@@ -136,8 +165,8 @@ class AirbyteLibError(Exception):
 
             exception_str += f"\n    Log output: \n    {indent(self.log_text, '    ')}"
 
-        if self.original_exception:
-            exception_str += VERTICAL_SEPARATOR + f"\nCaused by: {self.original_exception!s}"
+        if getattr(self, "_original_exception_opt_in", False) and self.__cause__ is not None:
+            exception_str += VERTICAL_SEPARATOR + f"\nCaused by: {self.__cause__!s}"
 
         if self.log_file:
             if self.print_full_log:
