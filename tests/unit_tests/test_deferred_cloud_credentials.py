@@ -667,8 +667,16 @@ def test_connector_check_reports_draft_failures_and_raises_on_errors(
 ) -> None:
     """A failed or incomplete-config check reports failure; server errors raise."""
     responses.post(
-        f"{CONFIG_API_ROOT}/sources/check_connection",
+        f"{CONFIG_API_ROOT}/commands/run/check",
         status=status_code,
+        json={"id": "check-id"} if status_code == 200 else body,
+    )
+    responses.post(
+        f"{CONFIG_API_ROOT}/commands/status",
+        json={"id": "check-id", "status": "completed"},
+    )
+    responses.post(
+        f"{CONFIG_API_ROOT}/commands/output/check",
         json=body,
     )
     connector = _workspace().get_source(ACTOR_ID)

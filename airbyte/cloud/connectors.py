@@ -93,6 +93,7 @@ from airbyte._util.api_util import get_web_url_root
 from airbyte.cloud.connector_builder import CloudConnectorBuilderProject
 from airbyte.cloud.connector_builder._util import unwrap_builder_manifest
 from airbyte.cloud.models import (
+    DEFAULT_CHECK_TIMEOUT_SECONDS,
     CheckResult,
     CloudCustomSourceDefinitionInfo,
     CloudDestinationInfo,
@@ -442,29 +443,64 @@ class CloudConnector:  # noqa: PLR0904  # Too many public methods
         self,
         *,
         raise_on_error: bool = True,
+        wait: bool = True,
+        wait_timeout: int = DEFAULT_CHECK_TIMEOUT_SECONDS,
+        command_id: str | None = None,
     ) -> CheckResult:
         """Check the connector.
 
-        Returns:
-            A `CheckResult` object containing the result. The object is truthy if the check was
-            successful and falsy otherwise. The error message is available in the `error_message`
-            or by converting the object to a string.
+        Runs the check asynchronously via the platform command API. With `wait=True` (default) this
+        blocks until the check completes. With `wait=False` it returns immediately; use
+        `CheckResult.wait_for_completion()` or call `check(command_id=..., wait=False)` to poll.
+        Pass `command_id` to attach to an existing check command instead of starting a new one.
+        The caller must supply a command belonging to this connector.
         """
-        result = api_util.check_connector(
-            workspace_id=self.workspace.workspace_id,
-            connector_type=self.connector_type,
-            actor_id=self.connector_id,
-            api_root=self.workspace.api_root,
-            client_id=self.workspace.client_id,
-            client_secret=self.workspace.client_secret,
-            bearer_token=self.workspace.bearer_token,
-            config_api_root=self.workspace.config_api_root,
-        )
+        if command_id is None:
+            try:
+                command_id = api_util.run_check_command(
+                    actor_id=self.connector_id,
+                    workspace_id=self.workspace.workspace_id,
+                    api_root=self.workspace.api_root,
+                    config_api_root=self.workspace.config_api_root,
+                    client_id=self.workspace.client_id,
+                    client_secret=self.workspace.client_secret,
+                    bearer_token=self.workspace.bearer_token,
+                )
+            except exc.AirbyteCloudError as ex:
+                if (ex.context or {}).get("status_code") != HTTPStatus.UNPROCESSABLE_ENTITY:
+                    raise
+                check_result = CheckResult(
+                    success=False,
+                    error_message=(
+                        "Connector configuration is incomplete or invalid; "
+                        "finish setup in Airbyte Cloud."
+                    ),
+                )
+                if raise_on_error:
+                    raise exc.AirbyteConnectorCheckFailedError(
+                        connector_name=(
+                            self._connector_info.name if self._connector_info else None
+                        ),
+                        message=f"Check failed: {check_result}",
+                        context={"connector_id": self.connector_id},
+                    ) from ex
+                return check_result
         check_result = CheckResult(
-            success=result[0],
-            error_message=result[1],
+            command_id=command_id,
+            connector=self,
         )
-        if raise_on_error and not check_result:
+        if wait:
+            check_result.wait_for_completion(
+                wait_timeout=wait_timeout,
+                raise_timeout=True,
+                raise_failure=False,
+            )
+        else:
+            check_result.get_status()
+            if check_result.is_complete():
+                check_result.refresh()
+
+        if raise_on_error and check_result.is_complete() and not check_result:
             raise exc.AirbyteConnectorCheckFailedError(
                 connector_name=(self._connector_info.name if self._connector_info else None),
                 message=f"Check failed: {check_result}",

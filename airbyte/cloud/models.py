@@ -3,16 +3,18 @@
 
 from __future__ import annotations
 
+import time
 from collections.abc import Mapping
 from dataclasses import asdict, dataclass, is_dataclass
 from datetime import datetime  # noqa: TC003  # Needed at runtime for Pydantic field types.
 from enum import Enum
-from typing import Any, Literal, Protocol
+from typing import TYPE_CHECKING, Any, Literal, Protocol
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from airbyte_protocol.models import DestinationSyncMode, SyncMode  # noqa: TC001
 
+from airbyte import exceptions as exc
 from airbyte._direct_connectors.models import (
     DirectAccessGuidance,
     DirectAccessGuidanceIndexEntry,
@@ -23,8 +25,13 @@ from airbyte._direct_connectors.models import (
     ExternalApiReadOnlyAction,
     ExternalApiWriteAction,
 )
+from airbyte._util import api_util
 from airbyte._util.compat import StrEnum
 from airbyte.registry import ConnectorType
+
+
+if TYPE_CHECKING:
+    from airbyte.cloud.connectors import CloudConnector
 
 
 class _WorkspaceResponseLike(Protocol):
@@ -140,11 +147,14 @@ class _DeclarativeSourceDefinitionResponseLike(Protocol):
     version: object
 
 
+DEFAULT_CHECK_TIMEOUT_SECONDS = 300
+
+
 @dataclass
 class CheckResult:
     """A cloud check result object."""
 
-    success: bool
+    success: bool = False
     """Whether the check result is valid."""
 
     error_message: str | None = None
@@ -153,20 +163,159 @@ class CheckResult:
     internal_error: str | None = None
     """None if the check was able to be run. Otherwise, this will describe the internal failure."""
 
+    command_id: str | None = None
+    """The ID of the asynchronous check command."""
+
+    failure_type: str | None = None
+    """The failure type returned by the check command."""
+
+    connector: CloudConnector | None = None
+    """The connector being checked."""
+
+    _status: str | None = None
+    """The latest command status."""
+
+    def get_status(self) -> str:
+        """Return the latest command status."""
+        if self._status is not None and self._status not in {"pending", "running"}:
+            return self._status
+        if self.connector is None or self.command_id is None:
+            return self._status or "completed"
+
+        response = api_util.get_command_status(
+            command_id=self.command_id,
+            api_root=self.connector.workspace.api_root,
+            config_api_root=self.connector.workspace.config_api_root,
+            client_id=self.connector.workspace.client_id,
+            client_secret=self.connector.workspace.client_secret,
+            bearer_token=self.connector.workspace.bearer_token,
+        )
+        self._status = response["status"]
+        return self._status
+
+    def is_complete(self) -> bool:
+        """Return whether the command has reached a final status."""
+        return self.get_status() not in {"pending", "running"}
+
+    def wait_for_completion(
+        self,
+        *,
+        wait_timeout: int = DEFAULT_CHECK_TIMEOUT_SECONDS,
+        raise_timeout: bool = True,
+        raise_failure: bool = False,
+    ) -> CheckResult:
+        """Wait for the check command to finish running."""
+        start_time = time.monotonic()
+        while True:
+            if self.is_complete():
+                self.refresh()
+                if raise_failure and not self:
+                    raise exc.AirbyteConnectorCheckFailedError(
+                        message=f"Check failed: {self}",
+                        context={"command_id": self.command_id},
+                    )
+                return self
+
+            if time.monotonic() - start_time > wait_timeout:
+                if raise_timeout:
+                    connector_id = self.connector.connector_id if self.connector else None
+                    raise exc.AirbyteConnectorCheckTimeoutError(
+                        connector_id=connector_id,
+                        command_id=self.command_id,
+                        timeout=wait_timeout,
+                    )
+                return self
+
+            time.sleep(api_util.JOB_WAIT_INTERVAL_SECS)
+
+    def cancel(self) -> None:
+        """Cancel the check command."""
+        if self.connector is None or self.command_id is None:
+            raise exc.AirbyteLibInputError(
+                message="A connector and command ID are required to cancel a check."
+            )
+        api_util.cancel_command(
+            command_id=self.command_id,
+            api_root=self.connector.workspace.api_root,
+            config_api_root=self.connector.workspace.config_api_root,
+            client_id=self.connector.workspace.client_id,
+            client_secret=self.connector.workspace.client_secret,
+            bearer_token=self.connector.workspace.bearer_token,
+        )
+
+    def get_logs(self) -> list[str]:
+        """Return the logs from the check command."""
+        if self.connector is None or self.command_id is None or self.get_status() == "cancelled":
+            return []
+        response = api_util.get_check_command_output(
+            command_id=self.command_id,
+            with_logs=True,
+            api_root=self.connector.workspace.api_root,
+            config_api_root=self.connector.workspace.config_api_root,
+            client_id=self.connector.workspace.client_id,
+            client_secret=self.connector.workspace.client_secret,
+            bearer_token=self.connector.workspace.bearer_token,
+        )
+        logs = response.get("logs") or {}
+        return logs.get("logLines") or []
+
+    def refresh(self) -> None:
+        """Refresh success and error fields from the command output."""
+        if self.connector is None or self.command_id is None:
+            return
+        status = self.get_status()
+        if status in {"pending", "running"}:
+            return
+        if status == "cancelled":
+            self.success = False
+            self.error_message = "Check command was cancelled."
+            return
+
+        response = api_util.get_check_command_output(
+            command_id=self.command_id,
+            api_root=self.connector.workspace.api_root,
+            config_api_root=self.connector.workspace.config_api_root,
+            client_id=self.connector.workspace.client_id,
+            client_secret=self.connector.workspace.client_secret,
+            bearer_token=self.connector.workspace.bearer_token,
+        )
+        status = response.get("status")
+        failure_reason = response.get("failureReason") or {}
+        self.success = status == "succeeded"
+        self.error_message = (
+            None
+            if self.success
+            else failure_reason.get("externalMessage") or response.get("message")
+        )
+        self.failure_type = failure_reason.get("failureType")
+        self.internal_error = (
+            failure_reason.get("internalMessage")
+            if not self.success and not failure_reason.get("externalMessage")
+            else None
+        )
+
     def __bool__(self) -> bool:
         """Truthy when check was successful."""
         return self.success
 
     def __str__(self) -> str:
         """Get a string representation of the check result."""
-        return "Success" if self.success else f"Failed: {self.error_message}"
+        if self.success:
+            return "Success"
+        failure_message = (
+            self.error_message or self.internal_error or "No failure message provided."
+        )
+        return f"Failed: {failure_message}"
 
     def __repr__(self) -> str:
         """Get a string representation of the check result."""
-        return (
+        result = (
             f"CheckResult(success={self.success}, "
             f"error_message={self.error_message or self.internal_error})"
         )
+        if self.command_id:
+            result = result[:-1] + f", command_id={self.command_id!r})"
+        return result
 
 
 class JobStatusEnum(str, Enum):

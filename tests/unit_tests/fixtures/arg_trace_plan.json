@@ -5,8 +5,11 @@
     "workspace_id": "omit"
   },
   "check_connector": {
+    "command_id": "hash",
     "connector_id": "hash",
     "connector_type": "value allowed=[\"destination\",\"source\"]",
+    "wait": "value allowed=[false,true]",
+    "wait_timeout": "hash",
     "workspace_id": "omit"
   },
   "create_connection": {
