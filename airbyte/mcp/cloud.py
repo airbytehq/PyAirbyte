@@ -1109,7 +1109,15 @@ def run_connection_sync(
         ),
     ],
 ) -> str:
-    """Run a sync job on Airbyte Cloud."""
+    """Run a sync job on Airbyte Cloud.
+
+    A disabled connection returns 409; re-enable it with `update_connection`
+    (`enabled=True`) first. If a sync is already running, the error includes its job ID:
+    monitor it with `get_connection_sync_status` instead of retrying, or call
+    `cancel_connection_sync`
+    first if a restart is really wanted. After a `wait=True` timeout, the sync keeps running;
+    check `get_connection_sync_status` rather than starting another sync.
+    """
     workspace: CloudWorkspace = _get_cloud_workspace_for_resource(
         ctx, workspace_id, connection_id=connection_id
     )

@@ -16,6 +16,8 @@ from fastmcp.exceptions import ToolError
 from airbyte._util import api_util
 from airbyte.exceptions import (
     AirbyteCloudApiError,
+    AirbyteConnectionSyncActiveError,
+    AirbyteConnectionSyncDisabledError,
     AirbyteConnectionSyncError,
     AirbyteConnectionSyncTimeoutError,
     AirbyteConnectorInUseError,
@@ -29,6 +31,7 @@ from airbyte.mcp._error_handling import (
     MCP_TOOL_USER_FACING_ERRORS,
     AgentErrorTextMiddleware,
     agent_error_text,
+    cloud_error_trace_message,
     redact_agent_text,
     classify_mcp_tool_error,
     format_user_facing_error,
@@ -556,6 +559,109 @@ def test_cloud_chain_uses_exact_message_for_agent_and_span(
     tool.__cause__ = error
     assert agent_error_text(tool) == expected
     assert cloud_error_trace_message(tool) == message
+
+
+@pytest.mark.parametrize(
+    ("error_type", "status", "expected"),
+    [
+        pytest.param(
+            AirbyteConnectionSyncDisabledError,
+            409,
+            "State conflict Re-enable with `update_connection` (`enabled=True`).",
+            id="disabled-connection",
+        ),
+        pytest.param(
+            AirbyteLibInputError,
+            409,
+            "State conflict",
+            id="unrelated-local-guidance-is-ignored",
+        ),
+        pytest.param(
+            AirbyteConnectionSyncDisabledError,
+            500,
+            "State conflict",
+            id="non-conflict-is-not-enriched",
+        ),
+        pytest.param(
+            AirbyteConnectionSyncDisabledError,
+            403,
+            f"State conflict {api_util.FORBIDDEN_RESOURCE_GUIDANCE}",
+            id="access-guidance-is-preserved",
+        ),
+    ],
+)
+def test_only_sync_conflict_guidance_is_preserved_with_cloud_error(
+    error_type: type[AirbyteLibInputError],
+    status: int,
+    expected: str,
+) -> None:
+    body = json.dumps({
+        "type": "https://reference.airbyte.com/reference/errors",
+        "title": "state-conflict",
+        "detail": "State conflict",
+    })
+    response = requests.Response()
+    response.status_code = status
+    response._content = body.encode()
+    sdk = SDKError("ignored SDK message", status, body, response)
+    sync_error = AirbyteConnectionSyncError(
+        connection_id="connection-id",
+        context={"status_code": status},
+    )
+    sync_error.__cause__ = sdk
+    error = error_type(
+        message="local override with diagnostic context",
+        guidance="Re-enable with `update_connection` (`enabled=True`).",
+    )
+    error.__cause__ = sync_error
+
+    assert format_user_facing_error(error) == expected
+    tool_error = ToolError("unformatted")
+    tool_error.__cause__ = error
+    assert agent_error_text(tool_error) == expected
+
+    assert cloud_error_trace_message(error) == "State conflict"
+
+
+def test_active_sync_error_is_a_user_facing_mcp_error() -> None:
+    connection_id = "connection-id"
+    job_id = 42
+    message = (
+        f"A sync is already running for connection '{connection_id}' (job {job_id})."
+    )
+    guidance = "Monitor job 42 with `get_connection_sync_status`."
+    body = json.dumps({
+        "type": "https://reference.airbyte.com/reference/errors#try-again-later",
+        "title": "try-again-later",
+        "detail": f"A sync is already running for: {connection_id}",
+    })
+    response = requests.Response()
+    response.status_code = 409
+    response._content = body.encode()
+    sdk = SDKError("ignored SDK message", 409, body, response)
+    error = AirbyteConnectionSyncActiveError(
+        connection_id=connection_id,
+        job_id=job_id,
+        message=message,
+        guidance=guidance,
+        context={"connection_id": connection_id, "job_id": job_id},
+    )
+    error.__cause__ = sdk
+
+    server = mcp_server(
+        "test",
+        telemetry=False,
+        user_facing_errors=MCP_TOOL_USER_FACING_ERRORS,
+        user_facing_error_formatter=format_user_facing_error,
+    )
+
+    @server.tool
+    def running_sync() -> None:
+        raise error
+
+    text = _call_error(server, "running_sync")
+
+    assert text == (f"A sync is already running for: {connection_id} {guidance}")
 
 
 @pytest.mark.parametrize("field", ["detail", "title"])

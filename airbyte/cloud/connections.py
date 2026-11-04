@@ -15,6 +15,7 @@ from airbyte_protocol.models import (
 
 from airbyte._direct_connectors import api_util as agents_api_util
 from airbyte._util import api_util
+from airbyte._util.cloud_errors import parse_cloud_error
 from airbyte.cloud._catalog_merge import (
     _merge_catalog_with_configuration,
     _preserve_api_only_catalog_fields,
@@ -57,6 +58,8 @@ from airbyte.cloud.models import (
 from airbyte.cloud.sync_results import SyncResult
 from airbyte.exceptions import (
     AirbyteCloudError,
+    AirbyteConnectionSyncActiveError,
+    AirbyteConnectionSyncDisabledError,
     AirbyteConnectionSyncError,
     AirbyteLibInputError,
     AirbyteMissingResourceError,
@@ -520,18 +523,22 @@ class CloudConnection:  # noqa: PLR0904  # Too many public methods
                 and ex.context.get("status_code") == HTTPStatus.CONFLICT
                 and not self.enabled
             ):
-                raise AirbyteLibInputError(
+                raise AirbyteConnectionSyncDisabledError(
                     message=(
                         f"Connection '{self.connection_id}' is disabled (status 'inactive'), "
                         "so a sync cannot be started."
                     ),
                     guidance=(
-                        "Re-enable the connection first (e.g. "
+                        "The connection is disabled. Re-enable the connection first (e.g. "
                         "`connection.set_enabled(enabled=True)`, or the "
                         "`update_connection` MCP tool with `enabled=True`), then retry."
                     ),
                     context={"connection_id": self.connection_id},
                 ) from ex
+            if ex.context and ex.context.get("status_code") == HTTPStatus.CONFLICT:
+                active_sync_error = self._already_running_sync_error(ex)
+                if active_sync_error is not None:
+                    raise active_sync_error from ex
             raise
         sync_result = SyncResult(
             workspace=self.workspace,
@@ -547,6 +554,66 @@ class CloudConnection:  # noqa: PLR0904  # Too many public methods
             )
 
         return sync_result
+
+    def _already_running_sync_error(
+        self,
+        error: AirbyteConnectionSyncError,
+    ) -> AirbyteConnectionSyncActiveError | None:
+        """Return actionable guidance when Cloud rejects a duplicate running sync."""
+        sdk_error = error.__cause__
+        if not isinstance(sdk_error, api_util.SDKError):
+            return None
+
+        problem = parse_cloud_error(
+            sdk_error.status_code,
+            api_util.error_response_body(sdk_error),
+        )
+        if problem.slug != "try-again-later":
+            return None
+
+        try:
+            running_job = next(
+                (
+                    (result, job_type)
+                    for job_type in JobTypeEnum
+                    for result in self.get_previous_sync_logs(limit=1, job_type=job_type)
+                    if not result.is_job_complete()
+                ),
+                None,
+            )
+        except AirbyteCloudError:
+            return None
+        if running_job is None:
+            return None
+
+        sync_result, job_type = running_job
+        job_id = sync_result.job_id
+        return AirbyteConnectionSyncActiveError(
+            connection_id=self.connection_id,
+            job_id=job_id,
+            workspace=self.workspace,
+            message=(
+                f"A {job_type.value} job is already running for connection '{self.connection_id}' "
+                f"(job {job_id})."
+            ),
+            guidance=(
+                f"A {job_type.value} job is already running (job {job_id}). "
+                "Don't start another sync. Monitor the running job with "
+                f"`connection.get_sync_result(job_id={job_id})` or the "
+                "`get_connection_sync_status` MCP tool "
+                f"(`connection_id='{self.connection_id}', job_id={job_id}`). "
+                "Only if the user wants to restart it, cancel it first with "
+                f"`connection.cancel_sync(job_id={job_id})` or the "
+                "`cancel_connection_sync` MCP tool "
+                f"(`connection_id='{self.connection_id}', job_id={job_id}`), "
+                f"then run the sync again. Job URL: {sync_result.job_url}."
+            ),
+            context={
+                "connection_id": self.connection_id,
+                "job_id": job_id,
+                "job_url": sync_result.job_url,
+            },
+        )
 
     def _get_latest_cancellable_sync_job_id(self) -> int:
         """Get the latest cancellable sync job ID."""
