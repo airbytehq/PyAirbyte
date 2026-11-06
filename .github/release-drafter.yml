@@ -1,0 +1,31 @@
+# Both the prepare and finalize passes use these categories.
+categories:
+  - title: '❇️ New MCP Features'
+    commit-scopes:
+      - 'mcp'
+    commit-types:
+      - 'feat'
+    display-order: 100
+  - title: '🚀 New Features'
+    commit-types:
+      - 'feat'
+    display-order: 101
+  - title: '🐛 Bug Fixes'
+    commit-types:
+      - 'fix'
+    display-order: 102
+  - title: '⚙️ Under the Hood'
+    commit-types:
+      - 'chore'
+      - 'build'
+      - 'refactor'
+      - 'perf'
+      - 'docs'
+    collapse-after: 3
+    display-order: 999
+  # Hidden changes alone don't create or refresh a draft.
+  - title: '🤖 CI and Tests'
+    commit-types:
+      - 'ci'
+      - 'test'
+    hidden: true
