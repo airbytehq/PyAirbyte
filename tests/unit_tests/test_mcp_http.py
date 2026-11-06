@@ -255,7 +255,7 @@ def test_http_read_only_url_param_cannot_disable_server_read_only_mode(
         ),
         pytest.param(
             None,
-            "http://testserver/mcp?Insiders=1",
+            "http://testserver/mcp?Insiders=TRUE",
             {},
             True,
             id="url_case_insensitive",
