@@ -390,7 +390,7 @@ the default, which this header can only narrow by setting it to `0`.
 MCP_INSIDERS_URL_PARAM: str = "insiders"
 """URL query parameter that advertises insiders MCP tools, for clients that can't send headers.
 
-Accepts `true` or `false` (any case) and behaves like `MCP_INSIDERS_HEADER`, which takes
+Accepts `true` or `false` (case insensitive) and behaves like `MCP_INSIDERS_HEADER`, which takes
 precedence when both are sent.
 """
 
