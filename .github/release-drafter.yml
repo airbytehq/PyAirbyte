@@ -6,7 +6,7 @@ categories:
     commit-types:
       - 'feat'
     display-order: 100
-  - title: '🚀 New PyAirbyte Features'
+  - title: '🚀 New Features'
     commit-types:
       - 'feat'
     display-order: 101
