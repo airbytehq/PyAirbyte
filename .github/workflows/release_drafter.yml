@@ -13,7 +13,7 @@ concurrency:
   cancel-in-progress: false
 
 permissions:
-  contents: read
+  contents: read # Overridden per job below.
 
 jobs:
   draft_release:
