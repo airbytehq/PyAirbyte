@@ -77,6 +77,7 @@ from airbyte.constants import (
     MCP_INSIDERS_ENV_VAR,
     MCP_INSIDERS_HEADER,
     MCP_INSIDERS_MODULES,
+    MCP_INSIDERS_URL_PARAM,
     MCP_LEGACY_SAFE_MODE_HEADER,
     MCP_LOCAL_DEMO_MODE_ENV_VAR,
     MCP_ORGANIZATION_ID_HEADER,
@@ -218,6 +219,8 @@ AIRBYTE_INCLUDE_MODULES_CONFIG_ARG = MCPServerConfigArg(
 INSIDERS_CONFIG_ARG = MCPServerConfigArg(
     name=MCP_CONFIG_INSIDERS,
     http_header_key=MCP_INSIDERS_HEADER,
+    url_param_key=MCP_INSIDERS_URL_PARAM,
+    url_param_allowed_values=("true", "false", "1", "0", "yes", "no"),
     env_var=MCP_INSIDERS_ENV_VAR,
     default="",
     required=False,
@@ -668,7 +671,8 @@ def _insiders_mode(app_or_ctx: FastMCP | Context) -> bool | None:
 
     `AIRBYTE_MCP_INSIDERS` sets the deployment default and callers may only narrow it: a
     falsy host value denies insiders tools outright, while a truthy one still honors an
-    explicit `X-MCP-Insiders: 0`. Returns `None` when neither is set to a recognized value.
+    explicit `X-MCP-Insiders: 0` or `?insiders=false`. Returns `None` when neither is set to a
+    recognized value.
     """
     hosted_mode = _str_to_bool(os.environ.get(MCP_INSIDERS_ENV_VAR))
     caller_mode = _str_to_bool(get_mcp_config(app_or_ctx, MCP_CONFIG_INSIDERS))
