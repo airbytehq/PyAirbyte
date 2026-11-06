@@ -12,6 +12,9 @@ concurrency:
   group: release-drafter-${{ github.ref }}
   cancel-in-progress: false
 
+permissions:
+  contents: read # Overridden per job below.
+
 jobs:
   draft_release:
     name: Draft Release
@@ -33,7 +36,7 @@ jobs:
           fetch-depth: 1
 
       - name: Create draft release (not ready)
-        uses: airbytehq/semantic-pr-release-drafter@v2.5.1
+        uses: aaronsteers/semantic-pr-release-drafter@8ebe479080d2ecb71377d5d6622ff97ca55b4655 # v2.6.0
         id: not-ready-draft
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -46,13 +49,15 @@ jobs:
               prerelease-identifier: rc
 
       - name: Build package
+        if: steps.not-ready-draft.outputs.skipped != 'true'
         env:
           VERSION: ${{ steps.not-ready-draft.outputs.tag-name }}
         # Standardize by removing preceding 'v' char:
         run: UV_DYNAMIC_VERSIONING_BYPASS="${VERSION#v}" uv build
 
       - name: Attach assets and finalize draft
-        uses: airbytehq/semantic-pr-release-drafter@v2.5.1
+        if: steps.not-ready-draft.outputs.skipped != 'true'
+        uses: aaronsteers/semantic-pr-release-drafter@8ebe479080d2ecb71377d5d6622ff97ca55b4655 # v2.6.0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
@@ -67,31 +72,3 @@ jobs:
           attach-files: |
             dist/*.whl
             dist/*.tar.gz
-          categories: |
-            # MCP features as separate section
-            - title: '❇️ New MCP Features'
-              commit-scopes:
-                - 'mcp'
-              commit-types:
-                - 'feat'
-              display-order: 100
-            # Generic categories
-            - title: '🚀 New PyAirbyte Features'
-              commit-types:
-                - 'feat'
-              display-order: 101
-            - title: '🐛 Bug Fixes'
-              commit-types:
-                - 'fix'
-              display-order: 102
-            - title: '⚙️ Under the Hood'
-              commit-types:
-                - 'chore'
-                - 'ci'
-                - 'build'
-                - 'refactor'
-                - 'test'
-                - 'perf'
-                - 'docs'
-              collapse-after: 3
-              display-order: 999
