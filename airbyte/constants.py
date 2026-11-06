@@ -387,6 +387,13 @@ A falsy `MCP_INSIDERS_ENV_VAR` overrides this header; a truthy one makes insider
 the default, which this header can only narrow by setting it to `0`.
 """
 
+MCP_INSIDERS_URL_PARAM: str = "insiders"
+"""URL query parameter that advertises insiders MCP tools, for clients that can't send headers.
+
+Accepts `true` or `false` (case insensitive) and behaves like `MCP_INSIDERS_HEADER`, which takes
+precedence when both are sent.
+"""
+
 # MCP Config Arg Names (used with get_mcp_config)
 
 MCP_CONFIG_READONLY_MODE: str = "airbyte_readonly_mode"

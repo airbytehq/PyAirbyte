@@ -22,6 +22,7 @@ from starlette.middleware import Middleware
 
 from airbyte.constants import (
     MCP_EXTENSIONS_HEADER,
+    MCP_INSIDERS_ENV_VAR,
     MCP_READONLY_MODE_ENV_VAR,
 )
 from airbyte.mcp.server import app
@@ -242,6 +243,59 @@ def test_http_read_only_url_param_cannot_disable_server_read_only_mode(
     )
 
     assert "run_connection_sync" not in names
+    assert "list_workspaces" in names
+
+
+@pytest.mark.parametrize(
+    ("env_value", "url", "headers", "expected"),
+    [
+        pytest.param(None, "http://testserver/mcp", {}, False, id="hidden_by_default"),
+        pytest.param(
+            None, "http://testserver/mcp?insiders=true", {}, True, id="url_enables"
+        ),
+        pytest.param(
+            None,
+            "http://testserver/mcp?Insiders=TRUE",
+            {},
+            True,
+            id="url_case_insensitive",
+        ),
+        pytest.param(
+            None,
+            "http://testserver/mcp?insiders=true",
+            {"X-MCP-Insiders": "0"},
+            False,
+            id="header_wins",
+        ),
+        pytest.param(
+            "1", "http://testserver/mcp?insiders=false", {}, False, id="url_narrows_env"
+        ),
+        pytest.param(
+            "0", "http://testserver/mcp?insiders=true", {}, False, id="env_off_wins"
+        ),
+    ],
+)
+def test_http_insiders_url_param(
+    monkeypatch: pytest.MonkeyPatch,
+    configure_client_capabilities: Any,
+    env_value: str | None,
+    url: str,
+    headers: dict[str, str],
+    expected: bool,
+) -> None:
+    """The `insiders` URL param toggles insiders tools like the `X-MCP-Insiders` header."""
+    if env_value is None:
+        monkeypatch.delenv(MCP_INSIDERS_ENV_VAR, raising=False)
+    else:
+        monkeypatch.setenv(MCP_INSIDERS_ENV_VAR, env_value)
+
+    names = _http_tool_names(
+        headers=headers,
+        configure_client_capabilities=configure_client_capabilities,
+        url=url,
+    )
+
+    assert ("create_connector_builder_project" in names) is expected
     assert "list_workspaces" in names
 
 
