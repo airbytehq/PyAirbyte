@@ -792,6 +792,101 @@ class CloudConnection:  # noqa: PLR0904  # Too many public methods
 
         self.import_raw_state(full_state)
 
+    def clear(
+        self,
+        stream_names: list[str] | None = None,
+    ) -> SyncResult:
+        """Clear the synced data of this connection, for all streams or only the named ones.
+
+        Clearing removes the records this connection wrote to the destination and resets
+        the saved state of the cleared streams, so the next sync reads them from the start.
+        This cannot be undone.
+
+        The clear runs as a job on Airbyte Cloud. This method starts the job and returns
+        without waiting. Call `wait_for_completion()` on the result to wait for it.
+
+        Args:
+            stream_names: Optional names of the selected streams to clear. If `None`
+                (default), all streams of the connection are cleared.
+
+        Returns:
+            A `SyncResult` for the clear job.
+
+        Raises:
+            PyAirbyteInputError: If `stream_names` is empty, names a stream that is not
+                selected in this connection, or names a stream that exists in more than
+                one namespace.
+        """
+        streams: list[dict[str, str]] | None = None
+        if stream_names is not None:
+            streams = self._resolve_stream_descriptors(stream_names)
+
+        job_info = api_util.clear_connection(
+            connection_id=self.connection_id,
+            streams=streams,
+            api_root=self.workspace.api_root,
+            client_id=self.workspace.client_id,
+            client_secret=self.workspace.client_secret,
+            bearer_token=self.workspace.bearer_token,
+            config_api_root=self.workspace.config_api_root,
+        )
+        return SyncResult(
+            workspace=self.workspace,
+            connection=self,
+            job_id=job_info["job"]["id"],
+        )
+
+    def _resolve_stream_descriptors(self, stream_names: list[str]) -> list[dict[str, str]]:
+        """Return the Config API stream descriptors of the named selected streams."""
+        if not stream_names:
+            raise PyAirbyteInputError(
+                message="No stream names were provided to clear.",
+                guidance="Pass at least one stream name, or omit `stream_names` to clear all.",
+                context={"connection_id": self.connection_id},
+            )
+
+        raw_catalog = self.dump_raw_catalog(normalize=False) or {}
+        namespaces_by_name: dict[str, list[str | None]] = {}
+        for entry in raw_catalog.get("streams", []):
+            if not entry.get("config", {}).get("selected", False):
+                continue
+            stream = entry.get("stream", {})
+            namespaces_by_name.setdefault(stream["name"], []).append(stream.get("namespace"))
+
+        unknown_names = [name for name in stream_names if name not in namespaces_by_name]
+        if unknown_names:
+            raise PyAirbyteInputError(
+                message="Some stream names are not selected in this connection.",
+                guidance="Use the names of streams that this connection syncs.",
+                context={
+                    "connection_id": self.connection_id,
+                    "unknown_stream_names": unknown_names,
+                    "selected_stream_names": sorted(namespaces_by_name),
+                },
+            )
+
+        ambiguous_names = [name for name in stream_names if len(namespaces_by_name[name]) > 1]
+        if ambiguous_names:
+            raise PyAirbyteInputError(
+                message="Some stream names exist in more than one namespace.",
+                guidance="Clear all streams of the connection instead.",
+                context={
+                    "connection_id": self.connection_id,
+                    "ambiguous_stream_names": ambiguous_names,
+                },
+            )
+
+        descriptors: list[dict[str, str]] = []
+        for name in dict.fromkeys(stream_names):
+            namespace = namespaces_by_name[name][0]
+            descriptors.append(
+                {
+                    "streamName": name,
+                    **({"streamNamespace": namespace} if namespace else {}),
+                }
+            )
+        return descriptors
+
     @deprecated("Use 'dump_raw_catalog()' instead.")
     def get_catalog_artifact(self) -> dict[str, Any] | None:
         """Get the configured catalog for this connection.

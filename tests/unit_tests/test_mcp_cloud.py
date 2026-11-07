@@ -4,7 +4,7 @@
 from __future__ import annotations
 
 import inspect
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from types import SimpleNamespace
 from typing import Callable, cast
@@ -17,6 +17,8 @@ from airbyte.cloud.models import (
     CloudWorkspaceInfo,
     JobStatusEnum,
 )
+from airbyte.exceptions import PyAirbyteInputError
+from airbyte.mcp import _tool_utils
 from airbyte.mcp import cloud as cloud_mcp
 from airbyte.mcp.cloud import (
     CloudConnectionResult,
@@ -25,7 +27,10 @@ from airbyte.mcp.cloud import (
     ConnectorCheckResult,
     SyncJobResult,
 )
+from airbyte.mcp._tool_utils import SafeModeError
 from fastmcp import Context
+from fastmcp_extensions.annotations import DESTRUCTIVE_HINT, READ_ONLY_HINT
+from fastmcp_extensions.decorators import _REGISTERED_TOOLS  # noqa: PLC2701
 
 
 @dataclass
@@ -875,3 +880,126 @@ def test_deploy_noop_destination_to_cloud_params_have_descriptions() -> None:
         assert field_infos, param_name
         assert field_infos[0].description, param_name
     assert "name" not in signature.parameters
+
+
+@dataclass
+class _ClearResultLike:
+    """Subset of `SyncResult` used by clear tool tests."""
+
+    job_id: int
+    job_url: str
+
+
+@dataclass
+class _ClearableConnectionLike:
+    """Subset of `CloudConnection` used by clear tool tests."""
+
+    name: str
+    received_stream_names: list[list[str] | None] = field(default_factory=list)
+
+    def clear(self, stream_names: list[str] | None = None) -> _ClearResultLike:
+        """Capture the stream names and return a clear job result."""
+        self.received_stream_names.append(stream_names)
+        return _ClearResultLike(job_id=77, job_url="https://cloud.airbyte.com/jobs/77")
+
+
+def _patch_clear_workspace(
+    monkeypatch: pytest.MonkeyPatch,
+    connection: _ClearableConnectionLike,
+    seen_workspace_ids: list[str | None],
+) -> None:
+    """Patch the Cloud workspace lookup to return the clear test double."""
+
+    def fake_get_cloud_workspace(
+        ctx: object,
+        workspace_id: str | None = None,
+    ) -> SimpleNamespace:
+        seen_workspace_ids.append(workspace_id)
+        return SimpleNamespace(get_connection=lambda **_: connection)
+
+    monkeypatch.setattr(cloud_mcp, "_get_cloud_workspace", fake_get_cloud_workspace)
+    monkeypatch.setattr(cloud_mcp, "check_guid_created_in_session", lambda _: None)
+
+
+@pytest.mark.parametrize(
+    ("stream_names", "expected_stream_names", "expected_scope"),
+    [
+        pytest.param(None, None, "all streams", id="all-streams"),
+        pytest.param("users,orders", ["users", "orders"], "streams", id="csv-streams"),
+        pytest.param(["users"], ["users"], "streams", id="list-streams"),
+    ],
+)
+def test_clear_cloud_connection_forwards_stream_names(
+    monkeypatch: pytest.MonkeyPatch,
+    stream_names: str | list[str] | None,
+    expected_stream_names: list[str] | None,
+    expected_scope: str,
+) -> None:
+    """Verify the clear tool resolves stream names and reports the clear job."""
+    connection = _ClearableConnectionLike(name="my-connection")
+    seen_workspace_ids: list[str | None] = []
+    _patch_clear_workspace(monkeypatch, connection, seen_workspace_ids)
+
+    result = cloud_mcp.clear_cloud_connection(
+        cast(Context, object()),
+        connection_id="connection-id",
+        name="my-connection",
+        stream_names=stream_names,
+        workspace_id="explicit-workspace-id",
+    )
+
+    assert seen_workspace_ids == ["explicit-workspace-id"]
+    assert connection.received_stream_names == [expected_stream_names]
+    assert expected_scope in result
+    assert "'77'" in result
+    assert "https://cloud.airbyte.com/jobs/77" in result
+
+
+def test_clear_cloud_connection_rejects_a_name_mismatch(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Verify the clear tool refuses to run when the confirmation name does not match."""
+    connection = _ClearableConnectionLike(name="my-connection")
+    _patch_clear_workspace(monkeypatch, connection, [])
+
+    with pytest.raises(PyAirbyteInputError, match="Name mismatch"):
+        cloud_mcp.clear_cloud_connection(
+            cast(Context, object()),
+            connection_id="connection-id",
+            name="other-connection",
+            workspace_id=None,
+        )
+
+    assert connection.received_stream_names == []
+
+
+def test_clear_cloud_connection_respects_safe_mode(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Verify the clear tool refuses a connection not created in this session in safe mode."""
+    monkeypatch.setattr(_tool_utils, "AIRBYTE_CLOUD_MCP_SAFE_MODE", True)
+    monkeypatch.setattr(
+        cloud_mcp,
+        "_get_cloud_workspace",
+        lambda ctx, workspace_id=None: pytest.fail("workspace must not be looked up"),
+    )
+
+    with pytest.raises(SafeModeError):
+        cloud_mcp.clear_cloud_connection(
+            cast(Context, object()),
+            connection_id="connection-not-created-in-session",
+            name="my-connection",
+            workspace_id=None,
+        )
+
+
+def test_clear_cloud_connection_is_marked_destructive() -> None:
+    """Verify the clear tool is registered with the destructive hint."""
+    annotations = next(
+        tool_annotations
+        for func, tool_annotations in _REGISTERED_TOOLS
+        if func is cloud_mcp.clear_cloud_connection
+    )
+
+    assert annotations[DESTRUCTIVE_HINT] is True
+    assert annotations[READ_ONLY_HINT] is False
