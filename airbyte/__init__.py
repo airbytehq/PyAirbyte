@@ -31,8 +31,8 @@ For more information, see the `airbyte.sources` module.
 ## Writing to SQL Caches
 
 Data can be written to caches using a number of SQL-based cache implementations, including
-Postgres, BigQuery, Snowflake, DuckDB, and MotherDuck. If you do not specify a cache, PyAirbyte
-will automatically use a local DuckDB cache by default.
+Postgres, BigQuery, Snowflake, Databricks, DuckDB, and MotherDuck. If you do not specify a cache,
+PyAirbyte will automatically use a local DuckDB cache by default.
 
 For more information, see the `airbyte.caches` module.
 
