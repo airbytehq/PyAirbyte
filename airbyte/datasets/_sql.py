@@ -6,6 +6,9 @@ from __future__ import annotations
 import warnings
 from typing import TYPE_CHECKING, Any, Literal, cast
 
+import pandas as pd
+import pyarrow as pa
+import pyarrow.dataset as ds
 from overrides import overrides
 from sqlalchemy import and_, func, select, text
 
@@ -23,7 +26,6 @@ from airbyte.datasets._base import DatasetBase
 if TYPE_CHECKING:
     from collections.abc import Iterator
 
-    from pandas import DataFrame
     from pyarrow.dataset import Dataset
     from sqlalchemy import Table
     from sqlalchemy.sql import ClauseElement
@@ -105,15 +107,23 @@ class SQLDataset(DatasetBase):
 
         return cast("int", self._length)
 
-    def to_pandas(self) -> DataFrame:
-        return self._cache.get_pandas_dataframe(self._stream_name)
+    def to_pandas(self) -> pd.DataFrame:
+        return pd.read_sql_query(self._query_statement, self._cache.get_sql_engine())
 
     def to_arrow(
         self,
         *,
         max_chunk_size: int = DEFAULT_ARROW_MAX_CHUNK_SIZE,
     ) -> Dataset:
-        return self._cache.get_arrow_dataset(self._stream_name, max_chunk_size=max_chunk_size)
+        pandas_chunks = pd.read_sql_query(
+            self._query_statement,
+            self._cache.get_sql_engine(),
+            chunksize=max_chunk_size,
+        )
+        arrow_tables = [pa.Table.from_pandas(pandas_chunk) for pandas_chunk in pandas_chunks]
+        # Filtering can expose an all-null first chunk. Reconcile chunk schemas rather
+        # than forcing later values into the first chunk's inferred null types.
+        return ds.dataset(pa.concat_tables(arrow_tables, promote_options="permissive"))
 
     def with_filter(self, *filter_expressions: ClauseElement | str) -> SQLDataset:
         """Filter the dataset by a set of column values.
@@ -180,7 +190,7 @@ class CachedDataset(SQLDataset):
         )
 
     @overrides
-    def to_pandas(self) -> DataFrame:
+    def to_pandas(self) -> pd.DataFrame:
         """Return the underlying dataset data as a pandas DataFrame."""
         return self._cache.get_pandas_dataframe(self._stream_name)
 
