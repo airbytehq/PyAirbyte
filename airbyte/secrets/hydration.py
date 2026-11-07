@@ -18,23 +18,19 @@ GLOBAL_MASK_KEYS_URL = "https://connectors.airbyte.com/files/registries/v0/specs
 
 
 def _hydrate_recursive(
-    config: dict,
+    config: dict | list,
 ) -> None:
-    """Recursively hydrate secrets in the given configuration dictionary.
+    """Recursively hydrate secrets in a configuration dictionary or list.
 
     Args:
-        config (dict): The configuration dictionary to hydrate.
+        config (dict | list): The configuration container to hydrate.
     """
-    for key, value in config.items():
-        if isinstance(value, dict):
+    items = config.items() if isinstance(config, dict) else enumerate(config)
+    for key, value in items:
+        if isinstance(value, (dict, list)):
             _hydrate_recursive(value)
-        elif isinstance(value, list):
-            for item in value:
-                if isinstance(item, dict):
-                    _hydrate_recursive(item)
         elif isinstance(value, str) and value.startswith(SECRETS_HYDRATION_PREFIX):
-            # Assuming the value is a secret reference
-            config[key] = get_secret(value)  # Replace with actual secret fetching logic
+            config[key] = get_secret(value)
 
 
 def hydrate_secrets(
