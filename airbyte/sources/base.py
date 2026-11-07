@@ -455,14 +455,14 @@ class Source(ConnectorBase):  # noqa: PLR0904
             # Use getattr to handle mocks or streams without supported_sync_modes attribute
             supported_modes = getattr(stream, "supported_sync_modes", None)
 
-            if force_full_refresh:
-                # When force_full_refresh is True, prefer full_refresh if supported
-                if supported_modes and SyncMode.full_refresh in supported_modes:
-                    return SyncMode.full_refresh
-                # Fall back to incremental if full_refresh is not supported
-                return SyncMode.incremental
+            if (
+                supported_modes
+                and SyncMode.full_refresh in supported_modes
+                and (force_full_refresh or SyncMode.incremental not in supported_modes)
+            ):
+                return SyncMode.full_refresh
 
-            # Default behavior: preserve previous semantics (always incremental)
+            # Prefer incremental unless full_refresh is required or explicitly requested.
             return SyncMode.incremental
 
         return ConfiguredAirbyteCatalog(
