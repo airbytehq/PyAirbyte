@@ -994,7 +994,10 @@ def test_default_choice_redirects_to_default_realm(harness: _Harness) -> None:
     assert query["prompt"] == ["consent"]
     assert "kc_idp_hint" not in query
     assert query["redirect_uri"] == [f"{BASE_URL}/auth/callback"]
-    assert "__Host-MCP_CONSENT_BINDING" in response.cookies
+    assert any(
+        name.startswith("__Host-MCP_CONSENT_BINDING") and response.cookies[name]
+        for name in response.cookies
+    )
     assert harness.transaction(txn_id).consent_token
     assert harness.choice(txn_id) is None
 
@@ -1024,7 +1027,10 @@ def test_sso_choice_redirects_to_realm_with_same_client(harness: _Harness) -> No
     )
     assert query["code_challenge"] == [expected_challenge]
     assert txn.consent_token
-    assert "__Host-MCP_CONSENT_BINDING" in response.cookies
+    assert any(
+        name.startswith("__Host-MCP_CONSENT_BINDING") and response.cookies[name]
+        for name in response.cookies
+    )
     assert f"__Host-{sso.LAST_REALM_COOKIE}" in response.cookies
     choice = harness.choice(txn_id)
     assert choice is not None
