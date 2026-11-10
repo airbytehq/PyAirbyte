@@ -1465,7 +1465,11 @@ class CloudConnection:  # noqa: PLR0904  # Too many public methods
         Returns:
             Updated CloudConnection object with refreshed info
         """
-        configurations = api_util.build_stream_configurations(stream_names)
+        connection_info = self._fetch_connection_info(force_refresh=True)
+        configurations = api_util.build_stream_configurations(
+            stream_names,
+            existing_streams=connection_info.configurations.streams,
+        )
 
         try:
             updated_response = api_util.patch_connection(

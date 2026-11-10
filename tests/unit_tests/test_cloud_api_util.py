@@ -34,6 +34,20 @@ from airbyte_api import api, models, utils
 from airbyte_api.errors import SDKError
 
 
+@pytest.mark.parametrize("stream_names", [["orders"], []])
+def test_build_stream_configurations_creation_defaults(stream_names: list[str]) -> None:
+    """New streams use the public API's full-refresh overwrite default explicitly."""
+    configurations = api_util.build_stream_configurations(stream_names)
+
+    assert configurations.streams == [
+        models.StreamConfiguration(
+            name=name,
+            sync_mode=models.ConnectionSyncModeEnum.FULL_REFRESH_OVERWRITE,
+        )
+        for name in stream_names
+    ]
+
+
 @pytest.mark.parametrize("interval_hours", [1, 24, 168])
 @pytest.mark.parametrize("use_client_credentials", [False, True])
 def test_set_connection_interval_schedule_payload(

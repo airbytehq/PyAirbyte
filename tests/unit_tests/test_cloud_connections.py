@@ -508,6 +508,11 @@ def test_set_selected_streams_enriches_only_bad_requests(
         api_util, "patch_connection", MagicMock(side_effect=original_error)
     )
     connection = _connection()
+    monkeypatch.setattr(
+        api_util,
+        "get_connection",
+        MagicMock(return_value=_scheduled_connection_response()),
+    )
     if catalog_behavior == "available":
         catalog_response: object = {
             "streams": [
@@ -550,6 +555,67 @@ def test_set_selected_streams_enriches_only_bad_requests(
             dump_raw_catalog.assert_not_called()
         else:
             dump_raw_catalog.assert_called_once_with()
+
+
+@pytest.mark.parametrize("stream_names", [["orders", "new"], [], ["orders"]])
+def test_set_selected_streams_preserves_current_configuration(
+    monkeypatch: pytest.MonkeyPatch,
+    stream_names: list[str],
+) -> None:
+    """Selection preserves current settings, including same-name namespaced streams."""
+    response = _scheduled_connection_response()
+    streams = [
+        models.StreamConfiguration(
+            name="orders",
+            namespace=namespace,
+            sync_mode=models.ConnectionSyncModeEnum.INCREMENTAL_DEDUPED_HISTORY,
+            cursor_field=["updated_at"],
+            primary_key=[["id"]],
+            selected_fields=[models.SelectedFieldInfo(field_path=["id"])],
+        )
+        for namespace in ["first", "second"]
+    ]
+    response.configurations.streams = streams
+    get_connection = MagicMock(return_value=response)
+    patch_connection = MagicMock(return_value=response)
+    monkeypatch.setattr(api_util, "get_connection", get_connection)
+    monkeypatch.setattr(api_util, "patch_connection", patch_connection)
+    connection = _connection()
+    connection._connection_info = CloudConnectionInfo.from_api_response(
+        _scheduled_connection_response()
+    )
+
+    assert connection.set_selected_streams(stream_names) is connection
+
+    get_connection.assert_called_once()
+    actual = patch_connection.call_args.kwargs["configurations"].streams
+    expected = streams.copy() if "orders" in stream_names else []
+    if "new" in stream_names:
+        expected.append(
+            models.StreamConfiguration(
+                name="new",
+                sync_mode=models.ConnectionSyncModeEnum.FULL_REFRESH_OVERWRITE,
+            )
+        )
+    assert actual == expected
+    if actual:
+        assert actual[0] is not streams[0]
+
+
+def test_set_selected_streams_does_not_write_when_read_fails(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A failed settings read must not fall back to destructive name-only updates."""
+    error = AirbyteCloudError(message="Connection unavailable")
+    monkeypatch.setattr(api_util, "get_connection", MagicMock(side_effect=error))
+    patch_connection = MagicMock()
+    monkeypatch.setattr(api_util, "patch_connection", patch_connection)
+
+    with pytest.raises(AirbyteCloudError) as exc_info:
+        _connection().set_selected_streams(["orders"])
+
+    assert exc_info.value is error
+    patch_connection.assert_not_called()
 
 
 def test_cancel_sync_resolves_latest_incomplete_job(
