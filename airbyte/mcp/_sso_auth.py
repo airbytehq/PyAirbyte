@@ -46,6 +46,7 @@ import asyncio
 import base64
 import binascii
 import functools
+import inspect
 import json
 import logging
 import os
@@ -702,6 +703,28 @@ _REQUIRED_TRANSACTION_FIELDS = (
 )
 
 
+@functools.cache
+def _consent_cookie_requires_request(method: Any) -> bool:  # noqa: ANN401
+    parameters = inspect.signature(method).parameters
+    supported = (
+        ("self", "request", "response", "txn_id", "consent_token"),
+        ("self", "response", "txn_id", "consent_token"),
+    )
+    if tuple(parameters) not in supported or any(
+        parameter.kind != inspect.Parameter.POSITIONAL_OR_KEYWORD
+        for parameter in parameters.values()
+    ):
+        msg = (
+            "The installed fastmcp has an unsupported _set_consent_binding_cookie "
+            f"signature: {inspect.signature(method)}. SSO login requires "
+            "(self, request, response, txn_id, consent_token) or "
+            "(self, response, txn_id, consent_token). Pin fastmcp to a supported "
+            "version or update airbyte.mcp._sso_auth."
+        )
+        raise RuntimeError(msg)
+    return "request" in parameters
+
+
 def check_fastmcp_compatibility() -> None:
     """Fail at startup if FastMCP no longer has a method or field this module relies on.
 
@@ -721,6 +744,7 @@ def check_fastmcp_compatibility() -> None:
             "airbyte.mcp._sso_auth."
         )
         raise RuntimeError(msg)
+    _consent_cookie_requires_request(OIDCProxy._set_consent_binding_cookie)  # noqa: SLF001
 
 
 class AirbyteSsoOidcProxy(OIDCProxy):
@@ -1049,7 +1073,14 @@ class AirbyteSsoOidcProxy(OIDCProxy):
         with realm_context(endpoints):
             upstream_url = self._build_upstream_authorize_url(txn.txn_id, txn.model_dump())
         response = RedirectResponse(url=upstream_url, status_code=HTTPStatus.FOUND)
-        self._set_consent_binding_cookie(request, response, txn.txn_id, consent_token)
+        cookie_kwargs: dict[str, Any] = {
+            "response": response,
+            "txn_id": txn.txn_id,
+            "consent_token": consent_token,
+        }
+        if _consent_cookie_requires_request(type(self)._set_consent_binding_cookie):  # noqa: SLF001
+            cookie_kwargs["request"] = request
+        self._set_consent_binding_cookie(**cookie_kwargs)
 
         remaining = [
             token
