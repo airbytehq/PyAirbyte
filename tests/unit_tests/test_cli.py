@@ -9,7 +9,12 @@ from Click to Cyclopts.
 from __future__ import annotations
 
 import io
+import importlib.metadata
+import os
+import subprocess
+import sys
 from contextlib import redirect_stdout
+from pathlib import Path
 
 import pytest
 from cyclopts import App
@@ -28,6 +33,27 @@ def _capture_help(tokens: list[str] | None = None) -> str:
 def test_cli_is_cyclopts_app() -> None:
     """The `cli` export is a `cyclopts.App` instance (not a Click group)."""
     assert isinstance(cli, App)
+
+
+@pytest.mark.parametrize("executable", ["pyab", "pyairbyte"])
+def test_cli_version_reports_installed_package(executable: str) -> None:
+    """Both installed aliases report the PyAirbyte version and exit successfully."""
+    result = subprocess.run(
+        [str(Path(sys.executable).parent / executable), "--version"],
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=30,
+        env={**os.environ, "DO_NOT_TRACK": "true"},
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.strip() == importlib.metadata.version("airbyte")
+
+
+def test_cli_help_includes_version() -> None:
+    """The root help makes the version flag discoverable."""
+    assert "--version" in _capture_help()
 
 
 def test_cli_registers_expected_commands() -> None:

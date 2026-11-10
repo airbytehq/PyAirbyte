@@ -13,6 +13,13 @@ pyairbyte --help
 pyab --help
 ```
 
+Print the installed PyAirbyte package version with either alias:
+
+```bash
+pyairbyte --version
+pyab --version
+```
+
 You can also use `pipx` or the fast and powerful `uv` tool to run the PyAirbyte CLI
 without pre-installing:
 
@@ -75,6 +82,7 @@ from airbyte.destinations.util import get_destination, get_noop_destination
 from airbyte.exceptions import AirbyteLibInputError
 from airbyte.secrets.util import get_secret
 from airbyte.sources.util import get_benchmark_source, get_source
+from airbyte.version import get_version
 
 
 if TYPE_CHECKING:
@@ -375,7 +383,7 @@ cli = App(
     name="pyab",  # pyrefly: ignore[unexpected-keyword]
     help="PyAirbyte CLI.",  # pyrefly: ignore[unexpected-keyword]
     help_format="plaintext",  # pyrefly: ignore[unexpected-keyword]
-    version_flags=[],  # pyrefly: ignore[unexpected-keyword]
+    version=get_version,  # pyrefly: ignore[unexpected-keyword]
     config=[_check_unsupported_env_vars_hook],  # pyrefly: ignore[unexpected-keyword]
 )
 
