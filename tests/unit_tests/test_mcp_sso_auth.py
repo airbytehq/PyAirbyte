@@ -794,6 +794,47 @@ def _login_sso(
     return txn_id, h.post_login(form)
 
 
+@pytest.mark.parametrize(
+    "with_request", [True, False], ids=["old-signature", "new-signature"]
+)
+def test_login_redirect_consent_cookie_signatures(
+    harness: _Harness, monkeypatch: MonkeyPatch, with_request: bool
+) -> None:
+    calls: list[tuple[str, str]] = []
+
+    def old_cookie(
+        self: sso.AirbyteSsoOidcProxy,
+        request: Any,
+        response: Any,
+        txn_id: str,
+        consent_token: str,
+    ) -> None:
+        assert request.url.path == sso.SSO_LOGIN_PATH
+        assert response.status_code == 302
+        calls.append((txn_id, consent_token))
+
+    def new_cookie(
+        self: sso.AirbyteSsoOidcProxy,
+        response: Any,
+        txn_id: str,
+        consent_token: str,
+    ) -> None:
+        assert response.status_code == 302
+        calls.append((txn_id, consent_token))
+
+    monkeypatch.setattr(
+        sso.AirbyteSsoOidcProxy,
+        "_set_consent_binding_cookie",
+        old_cookie if with_request else new_cookie,
+    )
+    txn_id, response = _login_default(harness)
+    assert response.status_code == 302
+    assert parse_qs(urlsplit(response.headers["location"]).query)["state"] == [txn_id]
+    consent_token = harness.transaction(txn_id).consent_token
+    assert consent_token
+    assert calls == [(txn_id, consent_token)]
+
+
 # ---------------------------------------------------------------------------
 # Proxy construction and wiring
 # ---------------------------------------------------------------------------
@@ -882,6 +923,19 @@ def test_compatibility_check_names_missing_fastmcp_members(
         (*sso._REQUIRED_TRANSACTION_FIELDS, "vanished"),  # noqa: SLF001
     )
     with pytest.raises(RuntimeError, match=r"_gone.*OAuthTransaction\.vanished"):
+        sso.check_fastmcp_compatibility()
+
+
+def test_compatibility_check_rejects_unsupported_consent_cookie_signature(
+    monkeypatch: MonkeyPatch,
+) -> None:
+    def unsupported(self: Any, response: Any, txn_id: str) -> None:
+        pass
+
+    monkeypatch.setattr(sso.OIDCProxy, "_set_consent_binding_cookie", unsupported)
+    with pytest.raises(
+        RuntimeError, match="unsupported _set_consent_binding_cookie signature"
+    ):
         sso.check_fastmcp_compatibility()
 
 
