@@ -1554,6 +1554,8 @@ def patch_destination(
 
 def build_stream_configurations(
     stream_names: list[str],
+    *,
+    existing_streams: list[models.StreamConfiguration] | None = None,
 ) -> models.StreamConfigurations:
     """Build a StreamConfigurations object from a list of stream names.
 
@@ -1562,13 +1564,15 @@ def build_stream_configurations(
 
     Args:
         stream_names: List of stream names to include in the configuration
+        existing_streams: Current configurations to preserve for selected streams.
 
     Returns:
         StreamConfigurations object ready for API submission
     """
-    stream_configurations = [
-        models.StreamConfiguration(name=stream_name) for stream_name in stream_names
-    ]
+    stream_configurations = []
+    for stream_name in stream_names:
+        matching = [stream for stream in existing_streams or [] if stream.name == stream_name]
+        stream_configurations.extend(matching or [models.StreamConfiguration(name=stream_name)])
     return models.StreamConfigurations(streams=stream_configurations)
 
 

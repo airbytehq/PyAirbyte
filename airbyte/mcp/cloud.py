@@ -3150,6 +3150,8 @@ def set_cloud_connection_selected_streams(
 ) -> str:
     """Set the selected streams for a connection on Airbyte Cloud.
 
+    Existing streams keep their sync settings. New streams use the API default sync mode.
+
     This is a destructive operation that can break existing connections if the
     stream selection is changed incorrectly. Use with caution.
     """

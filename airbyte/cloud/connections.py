@@ -918,6 +918,9 @@ class CloudConnection:  # noqa: PLR0904  # Too many public methods
     def set_selected_streams(self, stream_names: list[str]) -> CloudConnection:
         """Set the selected streams for the connection.
 
+        Existing streams keep their sync settings. Newly selected streams use the
+        API default sync mode.
+
         This is a destructive operation that can break existing connections if the
         stream selection is changed incorrectly. Use with caution.
 
@@ -927,7 +930,11 @@ class CloudConnection:  # noqa: PLR0904  # Too many public methods
         Returns:
             Updated CloudConnection object with refreshed info
         """
-        configurations = api_util.build_stream_configurations(stream_names)
+        connection_info = self._fetch_connection_info(force_refresh=True)
+        configurations = api_util.build_stream_configurations(
+            stream_names,
+            existing_streams=connection_info.configurations.streams,
+        )
 
         updated_response = api_util.patch_connection(
             connection_id=self.connection_id,
