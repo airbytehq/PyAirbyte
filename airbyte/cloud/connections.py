@@ -1456,6 +1456,12 @@ class CloudConnection:  # noqa: PLR0904  # Too many public methods
     def set_selected_streams(self, stream_names: list[str]) -> CloudConnection:
         """Set the selected streams for the connection.
 
+        Kept streams keep their settings. New streams get the best supported mode:
+        `incremental_deduped_history`, `incremental_append`,
+        `full_refresh_overwrite_deduped`, then `full_refresh_overwrite`, subject to
+        cursor and primary-key availability. If properties cannot be loaded, new
+        streams use API defaults instead.
+
         This is a destructive operation that can break existing connections if the
         stream selection is changed incorrectly. Use with caution.
 
@@ -1468,6 +1474,12 @@ class CloudConnection:  # noqa: PLR0904  # Too many public methods
         connection_info = self._fetch_connection_info(force_refresh=True)
         configurations = api_util.build_stream_configurations(
             stream_names,
+            source_id=connection_info.source_id,
+            destination_id=connection_info.destination_id,
+            api_root=self.workspace.api_root,
+            client_id=self.workspace.client_id,
+            client_secret=self.workspace.client_secret,
+            bearer_token=self.workspace.bearer_token,
             existing_streams=connection_info.configurations.streams,
         )
 

@@ -513,6 +513,9 @@ def test_set_selected_streams_enriches_only_bad_requests(
         "get_connection",
         MagicMock(return_value=_scheduled_connection_response()),
     )
+    monkeypatch.setattr(
+        api_util, "get_source_stream_properties", MagicMock(return_value=[])
+    )
     if catalog_behavior == "available":
         catalog_response: object = {
             "streams": [
@@ -584,6 +587,16 @@ def test_set_selected_streams_preserves_current_configuration(
     connection._connection_info = CloudConnectionInfo.from_api_response(
         _scheduled_connection_response()
     )
+    lookup = MagicMock(
+        return_value=[
+            models.StreamProperties(
+                stream_name="new",
+                sync_modes=[models.ConnectionSyncModeEnum.INCREMENTAL_APPEND],
+                default_cursor_field=["created_at"],
+            )
+        ]
+    )
+    monkeypatch.setattr(api_util, "get_source_stream_properties", lookup)
 
     assert connection.set_selected_streams(stream_names) is connection
 
@@ -594,12 +607,19 @@ def test_set_selected_streams_preserves_current_configuration(
         expected.append(
             models.StreamConfiguration(
                 name="new",
-                sync_mode=models.ConnectionSyncModeEnum.FULL_REFRESH_OVERWRITE,
+                sync_mode=models.ConnectionSyncModeEnum.INCREMENTAL_APPEND,
+                cursor_field=["created_at"],
             )
         )
     assert actual == expected
     if actual:
         assert actual[0] is not streams[0]
+    if "new" in stream_names:
+        lookup.assert_called_once()
+        assert lookup.call_args.kwargs["destination_id"] == "destination-id"
+        assert lookup.call_args.args[0] == "source-id"
+    else:
+        lookup.assert_not_called()
 
 
 def test_set_selected_streams_does_not_write_when_read_fails(

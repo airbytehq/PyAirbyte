@@ -1028,6 +1028,11 @@ def create_connection(
 ) -> str:
     """Create a connection between a deployed source and destination on Airbyte Cloud.
 
+    New streams get the best supported mode: `incremental_deduped_history`,
+    `incremental_append`, `full_refresh_overwrite_deduped`, then
+    `full_refresh_overwrite`, subject to cursor and primary-key availability.
+    If stream properties cannot be loaded, new streams use API defaults instead.
+
     New connections use a manual schedule by default. Automatic syncs require a later
     schedule update with `update_connection`.
 
@@ -4333,6 +4338,12 @@ def set_connection_selected_streams(
     ],
 ) -> str:
     """Set the selected streams for a connection on Airbyte Cloud.
+
+    Kept streams keep their settings. New streams get the best supported mode:
+    `incremental_deduped_history`, `incremental_append`,
+    `full_refresh_overwrite_deduped`, then `full_refresh_overwrite`, subject to
+    cursor and primary-key availability. If stream properties cannot be loaded,
+    new streams use API defaults instead.
 
     This is a destructive operation that can break existing connections if the
     stream selection is changed incorrectly. Use with caution.
