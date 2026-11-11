@@ -2033,8 +2033,24 @@ def _default_stream_configuration(
         name=properties.stream_name or "",
         namespace=properties.streamnamespace,
         sync_mode=mode,
-        cursor_field=properties.default_cursor_field,
-        primary_key=properties.source_defined_primary_key,
+        cursor_field=(
+            properties.default_cursor_field
+            if mode
+            in {
+                models.ConnectionSyncModeEnum.INCREMENTAL_DEDUPED_HISTORY,
+                models.ConnectionSyncModeEnum.INCREMENTAL_APPEND,
+            }
+            else None
+        ),
+        primary_key=(
+            properties.source_defined_primary_key
+            if mode
+            in {
+                models.ConnectionSyncModeEnum.INCREMENTAL_DEDUPED_HISTORY,
+                models.ConnectionSyncModeEnum.FULL_REFRESH_OVERWRITE_DEDUPED,
+            }
+            else None
+        ),
     )
 
 

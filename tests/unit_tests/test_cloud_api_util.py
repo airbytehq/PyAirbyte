@@ -170,8 +170,17 @@ def test_default_stream_configuration(
         name="orders",
         namespace="sales",
         sync_mode=models.ConnectionSyncModeEnum(expected),
-        cursor_field=cursor,
-        primary_key=primary_key,
+        cursor_field=(
+            cursor
+            if expected in {"incremental_deduped_history", "incremental_append"}
+            else None
+        ),
+        primary_key=(
+            primary_key
+            if expected
+            in {"incremental_deduped_history", "full_refresh_overwrite_deduped"}
+            else None
+        ),
     )
 
 
