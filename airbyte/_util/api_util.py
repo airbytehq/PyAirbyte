@@ -2029,6 +2029,12 @@ def _default_stream_configuration(
         if valid and candidate in modes:
             mode = candidate
             break
+    else:
+        if modes and mode not in modes:
+            return models.StreamConfiguration(
+                name=properties.stream_name or "",
+                namespace=properties.streamnamespace,
+            )
     return models.StreamConfiguration(
         name=properties.stream_name or "",
         namespace=properties.streamnamespace,

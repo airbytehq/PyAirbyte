@@ -134,11 +134,18 @@ def _build_stream_configurations(
             ["updated"],
             False,
             None,
-            "full_refresh_overwrite",
+            None,
         ),
-        (["incremental_append"], None, False, [["id"]], "full_refresh_overwrite"),
+        (["incremental_append"], None, False, [["id"]], None),
         (
             ["full_refresh_append"],
+            ["updated"],
+            False,
+            [["id"]],
+            None,
+        ),
+        (
+            ["full_refresh_overwrite"],
             ["updated"],
             False,
             [["id"]],
@@ -152,7 +159,7 @@ def test_default_stream_configuration(
     cursor: list[str] | None,
     source_cursor: bool,
     primary_key: list[list[str]] | None,
-    expected: str,
+    expected: str | None,
 ) -> None:
     """Mode priority respects support and cursor/key requirements."""
     properties = models.StreamProperties(
@@ -169,7 +176,9 @@ def test_default_stream_configuration(
     assert result == models.StreamConfiguration(
         name="orders",
         namespace="sales",
-        sync_mode=models.ConnectionSyncModeEnum(expected),
+        sync_mode=(
+            models.ConnectionSyncModeEnum(expected) if expected is not None else None
+        ),
         cursor_field=(
             cursor
             if expected in {"incremental_deduped_history", "incremental_append"}
