@@ -888,20 +888,19 @@ def test_compatibility_check_names_missing_fastmcp_members(
 def test_compatibility_check_names_changed_fastmcp_signatures(
     monkeypatch: MonkeyPatch,
 ) -> None:
-    def old_set_consent_binding_cookie(
+    def new_set_consent_binding_cookie(
         self: object,
-        request: object,
         response: object,
         txn_id: str,
         consent_token: str,
     ) -> None: ...
 
     monkeypatch.setattr(
-        sso.OIDCProxy, "_set_consent_binding_cookie", old_set_consent_binding_cookie
+        sso.OIDCProxy, "_set_consent_binding_cookie", new_set_consent_binding_cookie
     )
     with pytest.raises(
         RuntimeError,
-        match=r"_set_consent_binding_cookie\(self, response, txn_id, consent_token\)",
+        match=r"_set_consent_binding_cookie\(self, request, response, txn_id, consent_token\)",
     ):
         sso.check_fastmcp_compatibility()
 
@@ -961,7 +960,7 @@ def test_default_choice_redirects_to_default_realm(harness: _Harness) -> None:
     assert query["prompt"] == ["consent"]
     assert "kc_idp_hint" not in query
     assert query["redirect_uri"] == [f"{BASE_URL}/auth/callback"]
-    assert harness.proxy._consent_binding_cookie_name(txn_id) in response.cookies  # noqa: SLF001
+    assert "__Host-MCP_CONSENT_BINDING" in response.cookies
     assert harness.transaction(txn_id).consent_token
     assert harness.choice(txn_id) is None
 
@@ -991,7 +990,7 @@ def test_sso_choice_redirects_to_realm_with_same_client(harness: _Harness) -> No
     )
     assert query["code_challenge"] == [expected_challenge]
     assert txn.consent_token
-    assert harness.proxy._consent_binding_cookie_name(txn_id) in response.cookies  # noqa: SLF001
+    assert "__Host-MCP_CONSENT_BINDING" in response.cookies
     assert f"__Host-{sso.LAST_REALM_COOKIE}" in response.cookies
     choice = harness.choice(txn_id)
     assert choice is not None

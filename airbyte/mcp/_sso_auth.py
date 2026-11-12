@@ -32,7 +32,7 @@ startup. This module makes those per-login instead, mirroring the Cloud webapp's
 
 This works by subclassing `OIDCProxy` and overriding a handful of its methods and
 private attributes (listed in `_OVERRIDDEN_FASTMCP_METHODS`). Those are FastMCP
-internals with no compatibility promise, checked against fastmcp 4.1.7, so
+internals with no compatibility promise, checked against fastmcp 4.1.6, so
 `check_fastmcp_compatibility()` runs at startup and fails with a clear error if a
 FastMCP upgrade removed one or changed the signature of one this module calls.
 
@@ -702,7 +702,13 @@ _REQUIRED_TRANSACTION_FIELDS = (
     "consent_token",
 )
 _CALLED_FASTMCP_METHOD_PARAMS = {
-    "_set_consent_binding_cookie": ("self", "response", "txn_id", "consent_token"),
+    "_set_consent_binding_cookie": (
+        "self",
+        "request",
+        "response",
+        "txn_id",
+        "consent_token",
+    ),
     "_verify_consent_binding_cookie": ("self", "request", "txn_id", "expected_token"),
 }
 
@@ -1060,7 +1066,7 @@ class AirbyteSsoOidcProxy(OIDCProxy):
         with realm_context(endpoints):
             upstream_url = self._build_upstream_authorize_url(txn.txn_id, txn.model_dump())
         response = RedirectResponse(url=upstream_url, status_code=HTTPStatus.FOUND)
-        self._set_consent_binding_cookie(response, txn.txn_id, consent_token)
+        self._set_consent_binding_cookie(request, response, txn.txn_id, consent_token)
 
         remaining = [
             token
