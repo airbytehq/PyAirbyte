@@ -64,6 +64,7 @@ from airbyte.cloud.models import (
     StreamConfigUpdateResult,
     WorkspacePrivilegeScope,
 )
+from airbyte.cloud.sql import get_sql_schema, list_sql_destinations, require_sql_destination
 from airbyte.cloud.workspaces import CloudWorkspace
 from airbyte.constants import (
     MCP_CONFIG_API_URL,
@@ -2147,7 +2148,8 @@ def execute_external_sql_query(
     shaped and keyed, checking freshness or row counts, or exploring raw tables
     before designing downstream models.
 
-    Run `SHOW TABLES` first to discover tables and `SHOW DATABASES` to see the
+    Call `get_external_sql_schema` first for qualified tables, column types and meanings.
+    Use `SHOW DATABASES` to see the
     databases the destination is scoped to; `sql_dialect` defaults to the
     destination's registered dialect. Use `DESCRIBE TABLE <table>` to return a
     table's columns without reading rows.
@@ -2157,9 +2159,7 @@ def execute_external_sql_query(
     no `LIMIT`; add a `LIMIT` to every `SELECT`. On Snowflake prefer unquoted
     identifiers: double-quoting makes them case-sensitive.
     """
-    connector = _get_cloud_workspace_for_resource(
-        ctx, workspace_id, connector_id=connector_id
-    ).get_connector(connector_id)
+    connector = _get_sql_destination(ctx, workspace_id, connector_id)
     try:
         return connector.execute_sql_query(
             sql,
@@ -2168,6 +2168,87 @@ def execute_external_sql_query(
             cursor=cursor,
             dry_run=dry_run,
         )
+    except AirbyteMissingResourceError as error:
+        raise _sql_destination_error(ctx, workspace_id, connector_id) from error
+    except AirbyteExternalAccessNotEnabledError as error:
+        if error.enablement_url is None:
+            raise
+        return _direct_access_disabled_result(error, connector)
+
+
+def _sql_destination_error(
+    ctx: Context, workspace_id: str | None, connector_id: str
+) -> AirbyteLibInputError:
+    try:
+        destinations = list_sql_destinations(_get_cloud_workspace(ctx, workspace_id))
+        guidance = "Valid SQL-passthrough destinations (id, name, dialect): " + (
+            "; ".join(f"{item['id']}, {item['name']}, {item['dialect']}" for item in destinations)
+            or "none in this workspace"
+        )
+    except (AirbyteLibError, requests.RequestException):
+        destinations = []
+        guidance = "Could not list valid destination IDs. Call `list_connectors` for destinations."
+    return AirbyteLibInputError(
+        message=f"Connector {connector_id!r} is not an available SQL-passthrough destination.",
+        guidance=guidance,
+        context={"connector_id": connector_id, "valid_destinations": destinations},
+    )
+
+
+def _get_sql_destination(
+    ctx: Context, workspace_id: str | None, connector_id: str
+) -> CloudConnector:
+    try:
+        connector = _get_cloud_workspace_for_resource(
+            ctx, workspace_id, connector_id=connector_id
+        ).get_connector(connector_id)
+    except AirbyteMissingResourceError as error:
+        raise _sql_destination_error(ctx, workspace_id, connector_id) from error
+    try:
+        require_sql_destination(connector)
+    except (AirbyteLibInputError, AirbyteMissingResourceError) as error:
+        raise _sql_destination_error(ctx, workspace_id, connector_id) from error
+    return connector
+
+
+@mcp_tool(
+    title="Get external SQL schema",  # Use capital 'SQL' in tool title
+    read_only=True,
+    destructive=False,
+    idempotent=True,
+    open_world=True,
+    external_access=True,
+    tracing=lambda args: agent_action_attributes("get_external_sql_schema", args),
+)
+def get_external_sql_schema(
+    ctx: Context,
+    *,
+    connector_id: Annotated[str, Field(description="SQL-passthrough destination ID.")],
+    table_name_contains: Annotated[
+        str | None,
+        Field(description="Case-insensitive table-name substring."),
+        TraceArg.FINGERPRINT,
+    ] = None,
+    max_tables: Annotated[
+        int, Field(description="Maximum tables to describe (1-100)."), TraceArg.VALUE
+    ] = 20,
+    workspace_id: Annotated[
+        str | None, Field(description=RESOURCE_WORKSPACE_ID_TIP_TEXT), TraceArg.OMIT
+    ] = None,
+) -> dict[str, Any] | ExternalApiExecuteResult:
+    """Get qualified SQL tables and compact columns: `name type - meaning`.
+
+    Call before writing SQL. Meanings use synced source field descriptions when available;
+    otherwise blank. JSON/ARRAY/OBJECT/STRUCT types need dialect-specific extraction
+    functions. Metadata only, no data rows. `truncated` means more tables exist.
+    """
+    connector = _get_sql_destination(ctx, workspace_id, connector_id)
+    try:
+        return get_sql_schema(
+            connector, table_name_contains=table_name_contains, max_tables=max_tables
+        )
+    except AirbyteMissingResourceError as error:
+        raise _sql_destination_error(ctx, workspace_id, connector_id) from error
     except AirbyteExternalAccessNotEnabledError as error:
         if error.enablement_url is None:
             raise
