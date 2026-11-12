@@ -142,6 +142,10 @@ def get_sql_schema(
     return {
         "dialect": dialect,
         "tables": result,
-        "truncated": len(tables) > max_tables or bool(metadata.get("truncated")),
+        "truncated": (
+            len(tables) > max_tables
+            or bool(metadata.get("truncated"))
+            or discovery.connector_metadata.has_next_page is True
+        ),
         "warnings": warnings,
     }

@@ -107,6 +107,15 @@ def test_empty_schema() -> None:
     assert get_sql_schema(connector)["tables"] == []
 
 
+@pytest.mark.parametrize("has_next_page", [False, True])
+def test_schema_reports_discovery_pagination(has_next_page: bool) -> None:
+    connector = _connector()
+    connector.execute_sql_query.return_value = ExternalApiExecuteResult(
+        status="success", result=[], connector_metadata={"has_next_page": has_next_page}
+    )
+    assert get_sql_schema(connector)["truncated"] is has_next_page
+
+
 def test_schema_filter_and_cap() -> None:
     connector = _connector()
     connector.execute_sql_query.side_effect = [
