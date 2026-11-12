@@ -1108,6 +1108,20 @@ def test_snippet_search_without_streams_strips_entity_data(
     assert result.hits[0].entity_id == "42"
 
 
+def test_snippet_search_with_empty_streams_strips_entity_data(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace = _make_workspace(monkeypatch)
+    _patch_context_layer(monkeypatch)
+    _patch_search(monkeypatch, _SEARCH_RESPONSE)
+    source = _seed_source(workspace, "source-1", "GitHub Issues")
+
+    result = source.execute_search_query("refunds", streams=[], include_entity_data=False)
+
+    assert result.hits[0].entity_data == {}
+    assert result.hits[0].context == "Refund request from ACME"
+
+
 def test_full_record_search_forwards_unchanged_and_keeps_entity_data(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

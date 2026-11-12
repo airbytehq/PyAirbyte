@@ -783,7 +783,7 @@ class CloudConnector:  # noqa: PLR0904  # Too many public methods
                 enablement_url=self.connector_url,
             )
             raise
-        if not include_entity_data and resolved_streams is None:
+        if not include_entity_data and not resolved_streams:
             for hit in result.hits:
                 hit.entity_data = {}
         return result
