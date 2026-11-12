@@ -162,12 +162,14 @@ def test_invalid_destination_ids(
     elif invalid == "source":
         workspace.get_connector.return_value = SimpleNamespace(
             connector_id="bad",
-            connector_type=ConnectorType.SOURCE, definition_id=connector.definition_id
+            connector_type=ConnectorType.SOURCE,
+            definition_id=connector.definition_id,
         )
     elif invalid == "unsupported":
         workspace.get_connector.return_value = SimpleNamespace(
             connector_id="bad",
-            connector_type=ConnectorType.DESTINATION, definition_id="unsupported"
+            connector_type=ConnectorType.DESTINATION,
+            definition_id="unsupported",
         )
     else:
         connector.execute_sql_query.side_effect = AirbyteMissingResourceError(
