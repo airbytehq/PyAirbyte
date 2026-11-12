@@ -25,6 +25,11 @@ on:
         description: 'Published PyAirbyte version to pin (e.g. "0.56.0").'
         required: true
         type: string
+      pyairbyte-source-sha:
+        description: 'PyAirbyte source SHA. Full commit SHA the published dev wheel was built from. `/prerelease` builds have no release `pylock.toml`, so the preview deploy exports this commit''s `uv.lock` instead. Required when trigger-type=pr-prerelease; ignored for other trigger types.'
+        required: false
+        type: string
+        default: ''
       trigger-type:
         description: 'Trigger type for routing: "rc-release", "stable-release", or "pr-prerelease".'
         required: true
@@ -75,6 +80,7 @@ jobs:
     outputs:
       trigger_type: ${{ steps.resolve-vars.outputs.trigger_type }}
       requirement: ${{ steps.resolve-vars.outputs.requirement }}
+      source_sha: ${{ steps.resolve-vars.outputs.source_sha }}
       pinned: ${{ steps.resolve-vars.outputs.pinned }}
       deploy_internal_preview: ${{ steps.resolve-vars.outputs.deploy_internal_preview }}
       deploy_internal: ${{ steps.resolve-vars.outputs.deploy_internal }}
@@ -84,6 +90,7 @@ jobs:
         id: resolve-vars
         env:
           PYAIRBYTE_VERSION: ${{ inputs.pyairbyte-version || '' }}
+          PYAIRBYTE_SOURCE_SHA: ${{ inputs.pyairbyte-source-sha || '' }}
           # `trigger-type` is a required `workflow_call` input, so a non-empty value
           # means a caller invoked this workflow. On the `push` trigger the
           # `inputs` context is empty, which is what selects the git install
@@ -137,6 +144,16 @@ jobs:
             pinned="false"
           fi
 
+          # ---------- Lock source for `/prerelease` dev wheels ----------
+          # Dev wheels have no release `pylock.toml`, so the preview deploy
+          # exports the lock from the exact commit the wheel was built from.
+          source_sha=""
+          if [ "$trigger_type" = "pr-prerelease" ]; then
+            [[ "$PYAIRBYTE_SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]] \
+              || { echo "::error::pyairbyte-source-sha must be the full 40-character commit SHA the dev wheel was built from. Got: '$PYAIRBYTE_SOURCE_SHA'"; exit 1; }
+            source_sha="$PYAIRBYTE_SOURCE_SHA"
+          fi
+
           # ---------- Route the trigger type to services (see the env table) ----------
           # shellcheck disable=SC2086
           routes_to() { if printf '%s\n' $2 | grep -qxF "$1"; then echo true; else echo false; fi; }
@@ -153,6 +170,7 @@ jobs:
           {
             printf 'trigger_type=%s\n' "$trigger_type"
             printf 'requirement=%s\n' "$requirement"
+            printf 'source_sha=%s\n' "$source_sha"
             printf 'pinned=%s\n' "$pinned"
             printf 'deploy_internal_preview=%s\n' "$deploy_internal_preview"
             printf 'deploy_internal=%s\n' "$deploy_internal"
@@ -202,11 +220,16 @@ jobs:
         id: build-dispatch-payload
         env:
           PYAIRBYTE_REQUIREMENT: ${{ needs.resolve-vars.outputs.requirement }}
+          PYAIRBYTE_SOURCE_SHA: ${{ needs.resolve-vars.outputs.source_sha }}
         run: |
           set -euo pipefail
+          # Only `/prerelease` dev wheels carry a source SHA; releases use
+          # their published `pylock.toml`.
           preview_payload="$(jq -cn \
             --arg requirement "$PYAIRBYTE_REQUIREMENT" \
-            '{"mcp-server": "cloud-mcp", "preview": "true", "cloud-mcp-pyairbyte-requirement": $requirement}')"
+            --arg source_sha "$PYAIRBYTE_SOURCE_SHA" \
+            '{"mcp-server": "cloud-mcp", "preview": "true", "cloud-mcp-pyairbyte-requirement": $requirement}
+             + (if $source_sha != "" then {"cloud-mcp-pyairbyte-source-sha": $source_sha} else {} end)')"
           prod_payload="$(jq -cn \
             --arg requirement "$PYAIRBYTE_REQUIREMENT" \
             '{"mcp-server": "cloud-mcp", "preview": "false", "cloud-mcp-pyairbyte-requirement": $requirement}')"
@@ -324,6 +347,7 @@ jobs:
         env:
           TRIGGER_TYPE: ${{ needs.resolve-vars.outputs.trigger_type }}
           PYAIRBYTE_REQUIREMENT: ${{ needs.resolve-vars.outputs.requirement }}
+          PYAIRBYTE_SOURCE_SHA: ${{ needs.resolve-vars.outputs.source_sha }}
           DEPLOY_INTERNAL_PREVIEW: ${{ needs.resolve-vars.outputs.deploy_internal_preview }}
           DEPLOY_INTERNAL: ${{ needs.resolve-vars.outputs.deploy_internal }}
           DEPLOY_PROD: ${{ needs.resolve-vars.outputs.deploy_prod }}
@@ -348,6 +372,7 @@ jobs:
           {
             printf -- '- Trigger type: %s\n' "$TRIGGER_TYPE"
             printf -- '- Requirement: %s\n' "$PYAIRBYTE_REQUIREMENT"
+            [ -z "$PYAIRBYTE_SOURCE_SHA" ] || printf -- '- Lock source SHA: %s\n' "$PYAIRBYTE_SOURCE_SHA"
             print_route "airbyte-ops-mcp cloud-mcp-preview" "$DEPLOY_INTERNAL_PREVIEW" "$INTERNAL_RESULT" "$INTERNAL_RUNS_URL"
             print_route "airbyte-ops-mcp cloud-mcp" "$DEPLOY_INTERNAL" "$INTERNAL_RESULT" "$INTERNAL_RUNS_URL"
             print_route "airbyte-platform-internal cloud-mcp" "$DEPLOY_PROD" "$PROD_RESULT" "$PROD_RUNS_URL"
