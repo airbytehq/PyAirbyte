@@ -32,7 +32,7 @@ startup. This module makes those per-login instead, mirroring the Cloud webapp's
 
 This works by subclassing `OIDCProxy` and overriding a handful of its methods and
 private attributes (listed in `_OVERRIDDEN_FASTMCP_METHODS`). Those are FastMCP
-internals with no compatibility promise, checked against fastmcp 3.2.0, so
+internals with no compatibility promise, checked against fastmcp 4.1.8, so
 `check_fastmcp_compatibility()` runs at startup and fails with a clear error if a
 FastMCP upgrade removed one.
 
@@ -46,6 +46,7 @@ import asyncio
 import base64
 import binascii
 import functools
+import inspect
 import json
 import logging
 import os
@@ -700,6 +701,11 @@ _REQUIRED_TRANSACTION_FIELDS = (
     "csrf_expires_at",
     "consent_token",
 )
+_REQUIRED_FASTMCP_PARAMETERS = {
+    "_build_upstream_authorize_url": ("self", "txn_id", "transaction"),
+    "_set_consent_binding_cookie": ("self", "response", "txn_id", "consent_token"),
+    "_verify_consent_binding_cookie": ("self", "request", "txn_id", "expected_token"),
+}
 
 
 def check_fastmcp_compatibility() -> None:
@@ -721,6 +727,23 @@ def check_fastmcp_compatibility() -> None:
             "airbyte.mcp._sso_auth."
         )
         raise RuntimeError(msg)
+
+    for name, expected in _REQUIRED_FASTMCP_PARAMETERS.items():
+        signature = inspect.signature(getattr(OIDCProxy, name))
+        if tuple(signature.parameters) != expected or any(
+            parameter.kind
+            not in {
+                inspect.Parameter.POSITIONAL_ONLY,
+                inspect.Parameter.POSITIONAL_OR_KEYWORD,
+            }
+            for parameter in signature.parameters.values()
+        ):
+            msg = (
+                f"The installed fastmcp has an incompatible {name}{signature} signature. "
+                f"SSO login expects positional parameters {expected}. Install a compatible "
+                "fastmcp version or update airbyte.mcp._sso_auth."
+            )
+            raise RuntimeError(msg)
 
 
 class AirbyteSsoOidcProxy(OIDCProxy):
@@ -1049,7 +1072,7 @@ class AirbyteSsoOidcProxy(OIDCProxy):
         with realm_context(endpoints):
             upstream_url = self._build_upstream_authorize_url(txn.txn_id, txn.model_dump())
         response = RedirectResponse(url=upstream_url, status_code=HTTPStatus.FOUND)
-        self._set_consent_binding_cookie(request, response, txn.txn_id, consent_token)
+        self._set_consent_binding_cookie(response, txn.txn_id, consent_token)
 
         remaining = [
             token
