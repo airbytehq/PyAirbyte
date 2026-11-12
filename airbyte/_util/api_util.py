@@ -983,12 +983,13 @@ def get_connection(
     connection_id: str,
     *,
     workspace_id: str | None = None,
+    allow_mapper_loss: bool = True,
     api_root: str,
     client_id: SecretString | None,
     client_secret: SecretString | None,
     bearer_token: SecretString | None,
 ) -> models.ConnectionResponse:
-    """Get a connection."""
+    """Get a connection, optionally refusing fallback decoding that drops stream mappers."""
     _ = workspace_id  # Not used (yet)
     airbyte_instance = get_airbyte_server_instance(
         client_id=client_id,
@@ -1023,7 +1024,8 @@ def get_connection(
                 client_id=client_id,
                 client_secret=client_secret,
                 bearer_token=bearer_token,
-            )
+            ),
+            allow_mapper_loss=allow_mapper_loss,
         )
 
     if status_ok(response.status_code) and response.connection_response:
@@ -2031,6 +2033,16 @@ def _default_stream_configuration(
             break
     else:
         if modes and mode not in modes:
+            if models.ConnectionSyncModeEnum.FULL_REFRESH_APPEND in modes:
+                return models.StreamConfiguration(
+                    name=properties.stream_name or "",
+                    namespace=properties.streamnamespace,
+                    sync_mode=models.ConnectionSyncModeEnum.FULL_REFRESH_APPEND,
+                )
+            logger.warning(
+                "No supported default sync mode qualifies for stream %s; using API defaults.",
+                properties.stream_name,
+            )
             return models.StreamConfiguration(
                 name=properties.stream_name or "",
                 namespace=properties.streamnamespace,
@@ -2666,6 +2678,8 @@ def _decode_with_unknown_status(
 
 def _lenient_decode_connection(
     raw: dict[str, Any],
+    *,
+    allow_mapper_loss: bool = True,
 ) -> models.ConnectionResponse:
     """Decode a connection after dropping stream mappers and tolerating unknown status values."""
     cleaned = copy.deepcopy(raw)
@@ -2673,6 +2687,11 @@ def _lenient_decode_connection(
     if configurations is not None:
         for stream in configurations.get("streams") or []:
             if isinstance(stream, dict):
+                if not allow_mapper_loss and stream.get("mappers"):
+                    raise AirbyteCloudError(
+                        message="Stream mappers could not be read safely. Nothing was changed.",
+                        guidance="Change stream selection in the Airbyte Cloud UI instead.",
+                    )
                 stream.pop("mappers", None)
 
     return _decode_with_unknown_status(

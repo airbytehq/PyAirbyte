@@ -14,6 +14,8 @@ import requests
 import responses
 from airbyte import constants
 from airbyte._util import api_util, cloud_errors, meta
+from airbyte.cloud.connections import CloudConnection
+from airbyte.cloud.workspaces import CloudWorkspace
 from airbyte.cloud.models import (
     CloudConnectionInfo,
     CloudJobInfo,
@@ -142,7 +144,21 @@ def _build_stream_configurations(
             ["updated"],
             False,
             [["id"]],
+            "full_refresh_append",
+        ),
+        (
+            ["incremental_append", "full_refresh_append"],
             None,
+            False,
+            None,
+            "full_refresh_append",
+        ),
+        (
+            ["full_refresh_append", "full_refresh_overwrite"],
+            None,
+            False,
+            None,
+            "full_refresh_overwrite",
         ),
         (
             ["full_refresh_overwrite"],
@@ -155,6 +171,7 @@ def _build_stream_configurations(
     ],
 )
 def test_default_stream_configuration(
+    monkeypatch: pytest.MonkeyPatch,
     supported: list[str],
     cursor: list[str] | None,
     source_cursor: bool,
@@ -162,6 +179,8 @@ def test_default_stream_configuration(
     expected: str | None,
 ) -> None:
     """Mode priority respects support and cursor/key requirements."""
+    warning = Mock()
+    monkeypatch.setattr(api_util.logger, "warning", warning)
     properties = models.StreamProperties(
         stream_name="orders",
         streamnamespace="sales",
@@ -191,6 +210,13 @@ def test_default_stream_configuration(
             else None
         ),
     )
+    if expected is None:
+        warning.assert_called_once_with(
+            "No supported default sync mode qualifies for stream %s; using API defaults.",
+            "orders",
+        )
+    else:
+        warning.assert_not_called()
 
 
 def test_build_stream_configurations_lookup_failure(
@@ -1524,6 +1550,37 @@ def test_list_connections_paginates_resources(
     assert [
         (request.limit, request.offset) for request in captured_requests
     ] == expected_requests
+
+
+@responses.activate
+def test_set_selected_streams_refuses_undecodable_stream_mappers(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A lenient read must not permit a write that would discard stream mappers."""
+    api_root = "https://api.airbyte.test/api/public/v1"
+    connection_id = "connection-id"
+    url = f"{api_root}/connections/{connection_id}"
+    responses.get(url, json=_connection_with_field_filtering_mapper(connection_id))
+    patch = Mock()
+    monkeypatch.setattr(api_util, "patch_connection", patch)
+    connection = CloudConnection(
+        workspace=CloudWorkspace(
+            workspace_id="workspace-id",
+            api_root=api_root,
+            bearer_token=SecretString("bearer-token"),
+        ),
+        connection_id=connection_id,
+    )
+
+    with pytest.raises(
+        AirbyteCloudError, match="Stream mappers could not be read safely"
+    ) as exc:
+        connection.set_selected_streams(["leads"])
+
+    assert "Nothing was changed" in str(exc.value)
+    assert "Airbyte Cloud UI" in str(exc.value)
+    patch.assert_not_called()
+    assert [call.request.method for call in responses.calls] == ["GET", "GET"]
 
 
 @responses.activate
