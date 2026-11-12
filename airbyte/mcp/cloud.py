@@ -2268,8 +2268,7 @@ def execute_external_search_query(  # noqa: PLR0913  # Explicit args mirror the 
         Field(
             description=(
                 "Truncate each hit's `context` to this many characters. A truncated keyword "
-                "context stays centered on the match. Defaults to 512 when "
-                "`include_entity_data` is false, else to the backend's."
+                "context stays centered on the match. Defaults to 512."
             ),
             default=None,
         ),
@@ -2298,20 +2297,6 @@ def execute_external_search_query(  # noqa: PLR0913  # Explicit args mirror the 
             default=None,
         ),
     ] = None,
-    include_entity_data: Annotated[
-        bool,
-        Field(
-            description=(
-                "Return each hit's full record in `entity_data`. Leave false on your first "
-                "search: hits then carry `context` snippets and IDs, and `entity_data` is "
-                "`{}` unless a `streams` entry lists its `fields`. Set true only on a "
-                "follow-up search for hits you picked from those snippets, with `streams` "
-                "set to their stream and a narrow `prompt`."
-            ),
-            default=False,
-        ),
-        TraceArg.VALUE,
-    ] = False,
     workspace_id: Annotated[
         str | None,
         Field(
@@ -2333,13 +2318,10 @@ def execute_external_search_query(  # noqa: PLR0913  # Explicit args mirror the 
     `get_search_index_status` to check which streams are indexed and whether their
     backfill is complete.
 
-    Search in two steps, even when you need a record's full contents. First search
-    with the default `include_entity_data=false`: hits come back as snippets, each with
-    its `context` (up to 512 characters unless `max_context_chars` says otherwise),
-    `stream_name`, `namespace` and `entity_id`, with an empty `entity_data`. Then pick
-    the hits you need from the snippets and read only their full records: search again with
-    `include_entity_data=true`, `streams` set to the hit's stream and a narrow `prompt`,
-    or read the record from the source with `execute_external_api_query` or
+    Hits are always snippets: each hit has its `context` (up to 512 characters unless
+    `max_context_chars` says otherwise), `stream_name`, `namespace` and `entity_id`,
+    with an empty `entity_data`. Pick the hits you need from the snippets, then read
+    their full records from the source with `execute_external_api_query` or
     `execute_external_sql_query`. `entity_id` is a search record key (a JSON array of
     the record's typed primary key values), not a source API ID. Use `streams[].fields`
     to return only some `entity_data` fields (an output projection, not a match
@@ -2372,7 +2354,7 @@ def execute_external_search_query(  # noqa: PLR0913  # Explicit args mirror the 
             min_similarity=min_similarity,
             max_similarity_diff=max_similarity_diff,
             destination_id=destination_id,
-            include_entity_data=include_entity_data,
+            include_entity_data=False,
         )
     except AirbyteExternalAccessNotEnabledError as error:
         if error.enablement_url is None:

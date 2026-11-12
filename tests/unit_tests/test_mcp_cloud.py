@@ -2492,26 +2492,6 @@ def test_execute_external_search_query_forwards_args(
     assert isinstance(result, ExternalSearchResult)
 
 
-def test_execute_external_search_query_forwards_include_entity_data(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """`include_entity_data=True` reaches the connector so full records are returned."""
-    connector = _RecordingExecuteConnector()
-    _execute_workspace(monkeypatch, connector)
-
-    cloud_mcp.execute_external_search_query(
-        None,
-        connector_id="source-1",
-        prompt="refund requests",
-        include_entity_data=True,
-        workspace_id=None,
-    )
-
-    (kind, kwargs) = connector.calls[0]
-    assert kind == "search"
-    assert kwargs["include_entity_data"] is True
-
-
 @pytest.mark.parametrize(
     "streams",
     [

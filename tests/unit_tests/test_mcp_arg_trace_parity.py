@@ -54,7 +54,6 @@ CALLS: dict[str, dict[str, object]] = {
         "prompt": f"find {SENTINEL}",
         "streams": [{"name": SENTINEL}],
         "limit": 3,
-        "include_entity_data": True,
     },
     "list_connections": {"name_contains": SENTINEL, "limit": 5},
 }
