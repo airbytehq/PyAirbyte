@@ -2112,6 +2112,9 @@ def build_stream_configurations(
         matching_streams = [
             copy.deepcopy(stream) for stream in existing_streams if stream.name == stream_name
         ]
+        for stream in matching_streams:
+            if stream.selected_fields == []:
+                stream.selected_fields = None
         stream_configurations.extend(
             matching_streams
             or [

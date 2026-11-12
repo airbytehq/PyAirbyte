@@ -622,6 +622,44 @@ def test_set_selected_streams_preserves_current_configuration(
         lookup.assert_not_called()
 
 
+@pytest.mark.parametrize(
+    "selected_fields", [None, [], [models.SelectedFieldInfo(field_path=["id"])]]
+)
+def test_set_selected_streams_normalizes_empty_selected_fields(
+    monkeypatch: pytest.MonkeyPatch,
+    selected_fields: list[models.SelectedFieldInfo] | None,
+) -> None:
+    """Empty field selection is omitted without modifying the fetched configuration."""
+    response = _scheduled_connection_response()
+    original = models.StreamConfiguration(
+        name="orders",
+        sync_mode=models.ConnectionSyncModeEnum.INCREMENTAL_APPEND,
+        cursor_field=["updated_at"],
+        primary_key=[["id"]],
+        selected_fields=selected_fields,
+        mappers=[],
+    )
+    response.configurations.streams = [original]
+    patch_connection = MagicMock(return_value=response)
+    monkeypatch.setattr(api_util, "get_connection", MagicMock(return_value=response))
+    monkeypatch.setattr(api_util, "patch_connection", patch_connection)
+
+    _connection().set_selected_streams(["orders"])
+
+    actual = patch_connection.call_args.kwargs["configurations"].streams[0]
+    assert actual == models.StreamConfiguration(
+        name="orders",
+        sync_mode=models.ConnectionSyncModeEnum.INCREMENTAL_APPEND,
+        cursor_field=["updated_at"],
+        primary_key=[["id"]],
+        selected_fields=selected_fields or None,
+        mappers=[],
+    )
+    assert actual is not original
+    assert original.selected_fields == selected_fields
+    assert original.mappers == []
+
+
 def test_set_selected_streams_does_not_write_when_read_fails(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
