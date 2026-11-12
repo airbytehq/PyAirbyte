@@ -54,7 +54,7 @@ def test_advertise_root_mount_resource_recurses_into_multiauth() -> None:
     """The fix reaches the interactive server and every headless verifier in the tree."""
     server = _FakeProvider(base_url=_BASE_URL)
     verifier = _FakeProvider(base_url=_BASE_URL)
-    multi = MultiAuth(server=server, verifiers=[verifier])
+    multi = MultiAuth(server=server, verifiers={"headless": verifier})
 
     _advertise_root_mount_resource(multi)
 

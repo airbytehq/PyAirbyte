@@ -885,6 +885,26 @@ def test_compatibility_check_names_missing_fastmcp_members(
         sso.check_fastmcp_compatibility()
 
 
+def test_compatibility_check_names_changed_fastmcp_signatures(
+    monkeypatch: MonkeyPatch,
+) -> None:
+    def new_set_consent_binding_cookie(
+        self: object,
+        response: object,
+        txn_id: str,
+        consent_token: str,
+    ) -> None: ...
+
+    monkeypatch.setattr(
+        sso.OIDCProxy, "_set_consent_binding_cookie", new_set_consent_binding_cookie
+    )
+    with pytest.raises(
+        RuntimeError,
+        match=r"_set_consent_binding_cookie\(self, request, response, txn_id, consent_token\)",
+    ):
+        sso.check_fastmcp_compatibility()
+
+
 # ---------------------------------------------------------------------------
 # Login page
 # ---------------------------------------------------------------------------
