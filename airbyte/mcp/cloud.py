@@ -100,7 +100,11 @@ from airbyte.mcp._docs_results import (
     CloudConnectorDocsResult,
     render_connector_docs_result,
 )
-from airbyte.mcp._error_handling import format_user_facing_error, redact_agent_text
+from airbyte.mcp._error_handling import (
+    SqlDestinationInputError,
+    format_user_facing_error,
+    redact_agent_text,
+)
 from airbyte.mcp._guards import is_trusted_execution_enabled
 from airbyte.mcp._scope import (
     record_default_workspace,
@@ -2177,7 +2181,7 @@ def _sql_destination_error(
     except (AirbyteLibError, requests.RequestException):
         destinations = []
         guidance = "Could not list valid destination IDs. Call `list_connectors` for destinations."
-    return AirbyteLibInputError(
+    return SqlDestinationInputError(
         message=f"Connector {connector_id!r} is not an available SQL-passthrough destination.",
         guidance=guidance,
         context={"connector_id": connector_id, "valid_destinations": destinations},

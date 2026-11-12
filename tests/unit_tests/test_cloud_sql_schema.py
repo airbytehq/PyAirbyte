@@ -13,11 +13,13 @@ from airbyte._direct_connectors.models import (
 from airbyte.cloud.models import ConnectorType
 from airbyte.cloud.sql import get_sql_schema, list_sql_destinations
 from airbyte.exceptions import (
+    AirbyteCloudApiError,
     AirbyteCloudError,
     AirbyteLibInputError,
     AirbyteMissingResourceError,
 )
 from airbyte.mcp import cloud
+from airbyte.mcp._error_handling import format_user_facing_error
 
 
 def _connector(dialect: str = "bigquery") -> MagicMock:
@@ -206,3 +208,28 @@ def test_listing_failure_preserves_original(monkeypatch: pytest.MonkeyPatch) -> 
     with pytest.raises(AirbyteLibInputError, match="Could not list valid") as error:
         cloud.get_external_sql_schema(None, connector_id="bad")
     assert "Original not found" in str(error.value.__cause__)
+
+
+def test_destination_guidance_survives_cloud_error_formatting(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    connector = _connector()
+    connector.name = "Warehouse"
+    workspace = MagicMock()
+    workspace.list_destinations.return_value = [connector]
+    missing = AirbyteMissingResourceError(message="Not found")
+    missing.__cause__ = AirbyteCloudApiError(
+        status_code=404,
+        message="Unknown connector",
+        context={"response_text": '{"detail":"Unknown connector"}'},
+    )
+    workspace.get_connector.side_effect = missing
+    monkeypatch.setattr(cloud, "_get_cloud_workspace", lambda *_: workspace)
+    monkeypatch.setattr(
+        cloud, "_get_cloud_workspace_for_resource", lambda *_, **__: workspace
+    )
+    with pytest.raises(AirbyteLibInputError) as caught:
+        cloud.get_external_sql_schema(None, connector_id="bad")
+    text = format_user_facing_error(caught.value)
+    assert "Unknown connector" in text
+    assert "destination-1, Warehouse, bigquery" in text
