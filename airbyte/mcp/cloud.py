@@ -1775,7 +1775,8 @@ def describe_connector(
 
     Always returns identity fields and enabled features. The `with_*` toggles add the
     connector's configuration, its connections, its direct-access docs, and links to
-    its upstream API documentation.
+    its upstream API documentation. Describes capabilities and loading settings, not
+    warehouse inventory or record contents.
     """
     workspace: CloudWorkspace = _get_cloud_workspace_for_resource(
         ctx, workspace_id, connector_id=connector_id, connector_type=connector_type
@@ -1921,10 +1922,9 @@ def execute_external_api_query(  # noqa: PLR0913  # Explicit args mirror the con
 ) -> ExternalApiExecuteResult:
     """Read data from an external system through a deployed Cloud connector's direct API.
 
-    Useful, for example, for quick investigations with live data: checking the most
-    recent records in the source when synced data looks missing or stale, confirming a
-    field is available before relying on it in a pipeline, or answering a one-off
-    question without waiting for a sync.
+    Retrieves live records without waiting for a sync. Useful for checking source
+    freshness or reading a known entity. Available entities, actions, filters and
+    pagination depend on the connector; this is not a general SQL or indexed search API.
 
     `describe_connector` with `with_direct_access_guidance=True` also returns the
     connector's action docs.
@@ -2126,38 +2126,27 @@ def execute_external_sql_query(
 ) -> ExternalApiExecuteResult:
     """Run a read-only SQL query against a deployed SQL-passthrough destination.
 
-    Only SQL-passthrough destinations (Snowflake/BigQuery) support this tool.
+    Supports exact filters, joins, aggregates, sorting and row inspection over data in
+    Snowflake/BigQuery. Requires actual table and column names; it does not rank records
+    by semantic relevance or read unsynced source changes. `get_external_sql_schema`
+    lists qualified tables, column types and available source field meanings.
 
-    Use three-part table names: BigQuery `project.dataset.table` maps to
-    database.schema.table, as does Snowflake `database.schema.table`. `SHOW DATABASES`
-    identifies the configured project/database, not its datasets/schemas; `SHOW TABLES`
-    discovers tables across that context's schemas without changing the default query
-    dataset/schema. BigQuery metadata is scoped to the configured query location and
-    warehouse metadata permissions still apply.
+    Use three-part names: BigQuery `project.dataset.table`, Snowflake
+    `database.schema.table`. Connection namespace overrides and prefixes describe where
+    syncs write, not where unqualified queries resolve. `describe_connector` can return
+    these advisory loading hints; they are not warehouse inventory or an authorization
+    boundary. BigQuery metadata is scoped to the configured query location, and warehouse
+    metadata permissions apply.
 
-    For expected loading schemas, call `describe_connector` with
-    `with_replication_details=True` or `with_direct_access_guidance=True`. Connection
-    namespace overrides and prefixes describe where each sync writes, not where
-    unqualified queries resolve. Source-derived namespaces and schema templates may
-    vary per stream. These hints are advisory, not exhaustive warehouse inventory or
-    an authorization boundary. Confirm table names with discovery and qualify queries
-    rather than assuming every connection loads into the destination default schema.
+    Accepts one `SELECT`/`WITH` query or the metadata-only `SHOW TABLES`, `SHOW DATABASES`
+    and `DESCRIBE TABLE <table>` macros. `SHOW DATABASES` identifies the configured
+    project/database, not its datasets/schemas. `SHOW TABLES` spans that context's schemas
+    without changing the default query dataset/schema. The macros take no `LIMIT`;
+    add a `LIMIT` to row-returning `SELECT` queries.
 
-    Useful, for example, for debugging pipelines and inspecting what a sync landed:
-    discovering which tables a sync created, sampling rows to see how records are
-    shaped and keyed, checking freshness or row counts, or exploring raw tables
-    before designing downstream models.
-
-    Call `get_external_sql_schema` first for qualified tables, column types and meanings.
-    Use `SHOW DATABASES` to see the
-    databases the destination is scoped to; `sql_dialect` defaults to the
-    destination's registered dialect. Use `DESCRIBE TABLE <table>` to return a
-    table's columns without reading rows.
-
-    Accepted statements are a single `SELECT`/`WITH` query plus the `SHOW TABLES`,
-    `SHOW DATABASES`, and `DESCRIBE TABLE <table>` macros. The `SHOW` macros take
-    no `LIMIT`; add a `LIMIT` to every `SELECT`. On Snowflake prefer unquoted
-    identifiers: double-quoting makes them case-sensitive.
+    `sql_dialect` defaults to the destination's registered dialect. `dry_run` returns
+    column metadata without scanning rows. Snowflake double-quoted identifiers are
+    case-sensitive; ordinary unquoted identifiers are upper-cased.
     """
     connector = _get_sql_destination(ctx, workspace_id, connector_id)
     try:
@@ -2238,9 +2227,11 @@ def get_external_sql_schema(
 ) -> dict[str, Any] | ExternalApiExecuteResult:
     """Get qualified SQL tables and compact columns: `name type - meaning`.
 
-    Call before writing SQL. Meanings use synced source field descriptions when available;
-    otherwise blank. JSON/ARRAY/OBJECT/STRUCT types need dialect-specific extraction
-    functions. Metadata only, no data rows. `truncated` means more tables exist.
+    Describes warehouse metadata without reading data rows. Meanings use synced source
+    field descriptions when available, otherwise blank. JSON/ARRAY/OBJECT/STRUCT types
+    need dialect-specific extraction
+    functions. Covers at most `max_tables` matching tables from the discovery page;
+    `truncated` means the inventory is incomplete. Does not sample or search records.
     """
     connector = _get_sql_destination(ctx, workspace_id, connector_id)
     try:
@@ -2309,13 +2300,13 @@ def execute_external_search_query(  # noqa: PLR0913  # Explicit args mirror the 
     ] = None,
     prompt: Annotated[
         str,
-        Field(description="The search text, for example `refund requests from ACME`."),
+        Field(description="Text or meaning to match, not a SQL predicate."),
         TraceArg.FINGERPRINT,
     ],
     search_type: Annotated[
         ExternalSearchType,
         Field(
-            description="The search type: `keyword`, `semantic`, or `hybrid`.",
+            description="Match by `keyword`, semantic meaning (`semantic`), or both (`hybrid`).",
             default=ExternalSearchType.HYBRID,
         ),
     ] = ExternalSearchType.HYBRID,
@@ -2345,7 +2336,7 @@ def execute_external_search_query(  # noqa: PLR0913  # Explicit args mirror the 
     lookback_seconds: Annotated[
         int | None,
         Field(
-            description="Only match records from the last `lookback_seconds` seconds.",
+            description="Only match records whose stream cursor is within this many seconds.",
             default=None,
         ),
     ] = None,
@@ -2394,33 +2385,29 @@ def execute_external_search_query(  # noqa: PLR0913  # Explicit args mirror the 
 ) -> ExternalSearchResult:
     """Search indexed data for a deployed Cloud source or destination.
 
-    Useful, for example, for finding records by meaning or keyword when the exact
-    entity, table, or ID isn't known, such as conversations about a customer or
-    tickets that mention an error.
+    Returns relevance-ranked keyword, semantic or hybrid matches with scores, matched
+    text in `context`, and record keys in `entity_id`. Useful for finding related
+    records without knowing exact table names or IDs. It searches indexed synced data,
+    not live source changes; a limited hit list is not an exhaustive result or count.
+    Supports stream selection, cursor lookback and similarity thresholds, not arbitrary
+    field predicates, joins, aggregates or user-defined sorting.
 
-    A source searches its own indexed data; a destination searches every indexed source
-    synced to it. On a destination search, every `streams` entry needs the `source_id`
-    of the source that stream belongs to. When results are empty, call
-    `get_search_index_status` to check which streams are indexed and whether their
-    backfill is complete.
+    A source searches its own indexed data; a destination searches indexed sources
+    synced to it. Each destination `streams` entry needs its `source_id`. For a source
+    synced to several enabled destinations, `destination_id` selects which to search.
+    `get_search_index_status` lists those IDs, indexed streams and backfill progress;
+    empty results alone do not establish that no matching records exist.
 
-    Hits are always snippets: each hit has its `context` (up to 512 characters unless
-    `max_context_chars` says otherwise), `stream_name`, `namespace` and `entity_id`,
-    with an empty `entity_data`. Pick the hits you need from the snippets, then read
-    their full records from the source with `execute_external_api_query` or
-    `execute_external_sql_query`. `entity_id` is a search record key (a JSON array of
-    the record's typed primary key values), not a source API ID. Use `streams[].fields`
-    to return only some `entity_data` fields (an output projection, not a match
-    filter). `min_similarity` and `max_similarity_diff` apply only to
-    `semantic` and `hybrid` searches. Pass `destination_id` for a source synced to
-    several enabled destinations; the IDs are listed by `get_search_index_status`.
-    Per-index failures, and hits left out to keep the response within its size
-    budget, are reported in `warnings`.
+    Hits are snippets with `stream_name`, `namespace` and `entity_id`; `entity_data`
+    is empty unless `streams[].fields` projects fields (not a match filter).
+    `entity_id` is a JSON array of typed primary key values, not a source API ID.
+    `max_context_chars` caps context at 512 characters by default. `min_similarity`
+    and `max_similarity_diff` apply only to semantic and hybrid searches. Per-index
+    failures and hits omitted by the response size budget appear in `warnings`.
 
-    A keyword-only hit leaves out of `entity_data` any field longer than 4096 characters
-    or split across keyword chunks; its `context` holds the matched text, centered on the
-    first query term. Read a dropped field's full value with `execute_external_api_query`
-    or `execute_external_sql_query`.
+    Null fields are absent from `entity_data`. Keyword-only hits also omit fields longer
+    than 4096 characters or split across chunks; `context` contains the matched text,
+    centered on the first query term. Hits are not guaranteed to contain complete records.
     """
     connector = _get_cloud_connector(
         _get_cloud_workspace_for_resource(
@@ -2736,7 +2723,10 @@ def describe_connection(
         TraceArg.OMIT,
     ],
 ) -> CloudConnectionDetails:
-    """Get detailed information about a specific deployed connection."""
+    """Get a connection's source, destination, selected streams, prefix and schedule.
+
+    Returns pipeline settings, not record data or warehouse column inventory.
+    """
     workspace: CloudWorkspace = _get_cloud_workspace_for_resource(
         ctx, workspace_id, connection_id=connection_id
     )
