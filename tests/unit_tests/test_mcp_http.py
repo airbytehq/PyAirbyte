@@ -15,10 +15,12 @@ from typing import Any
 import httpx
 import mcp_types as types
 import pytest
+from fastmcp.server.auth.providers.jwt import JWTVerifier
 from mcp.client.session import ClientSession
 from mcp.client.stdio import StdioServerParameters, stdio_client
 from mcp.client.streamable_http import streamable_http_client
 from starlette.middleware import Middleware
+from starlette.testclient import TestClient
 
 from airbyte.constants import (
     MCP_EXTENSIONS_HEADER,
@@ -39,6 +41,27 @@ UI_TOOL_NAMES = {
     "show_connection_sync_history",
 }
 REPO_ROOT = Path(__file__).parents[2]
+
+
+@pytest.mark.parametrize("auth_enabled", [False, True])
+def test_openai_apps_challenge_without_auth(
+    monkeypatch: pytest.MonkeyPatch, *, auth_enabled: bool
+) -> None:
+    """Domain verification stays public even when MCP requires bearer auth."""
+    auth = (
+        JWTVerifier(public_key="test-signing-secret", algorithm="HS256")
+        if auth_enabled
+        else None
+    )
+    monkeypatch.setattr(app, "auth", auth)
+    with TestClient(_http_app()) as client:
+        response = client.get("/.well-known/openai-apps-challenge")
+        assert "authorization" not in response.request.headers
+        assert response.status_code == 200
+        assert response.content == b"coFQcQq3yDXgL1YimT6HXJpTx7bdd6yODW7ZtHJ7EVs"
+        assert response.headers["content-type"] == "text/plain; charset=utf-8"
+        if auth_enabled:
+            assert client.post("/mcp", json={}).status_code == 401
 
 
 def test_mcp_types_aliases_mcp_types_package() -> None:

@@ -66,7 +66,7 @@ from fastmcp_extensions import (
     build_mcp_auth,
     mcp_server,
 )
-from starlette.responses import JSONResponse
+from starlette.responses import JSONResponse, PlainTextResponse
 
 
 if TYPE_CHECKING:
@@ -134,6 +134,9 @@ from airbyte.mcp.local import register_local_tools
 from airbyte.mcp.registry import register_registry_tools
 from airbyte.secrets import SecretSourceEnum
 from airbyte.secrets.config import disable_secret_source
+
+
+OPENAI_APPS_CHALLENGE = "coFQcQq3yDXgL1YimT6HXJpTx7bdd6yODW7ZtHJ7EVs"
 
 
 # =============================================================================
@@ -616,6 +619,12 @@ validate_airbyte_domains(app)
 async def health_check(request: Request) -> JSONResponse:  # noqa: ARG001, RUF029
     """Health check endpoint for load balancer probes."""
     return JSONResponse({"status": "ok"})
+
+
+@app.custom_route("/.well-known/openai-apps-challenge", methods=["GET"])
+async def openai_apps_challenge(request: Request) -> PlainTextResponse:  # noqa: ARG001, RUF029
+    """Serve the public OpenAI apps domain verification token."""
+    return PlainTextResponse(OPENAI_APPS_CHALLENGE)
 
 
 def main() -> None:
