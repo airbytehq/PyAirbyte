@@ -4,6 +4,12 @@
     "job_id": "hash",
     "workspace_id": "omit"
   },
+  "get_external_record": {
+    "entity_id": "hash",
+    "source_id": "hash",
+    "stream_name": "hash",
+    "workspace_id": "omit"
+  },
   "check_connector": {
     "command_id": "hash",
     "connector_id": "hash",

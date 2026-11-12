@@ -24,6 +24,7 @@ TOOL_TITLE_OVERRIDES = {
     "update_connection_unsafe": "Update connection (unsafe)",
 }
 OPEN_WORLD_TOOL_NAMES = {
+    "get_external_record",
     "execute_external_api_query",
     "execute_external_sql_query",
     "execute_external_search_query",

@@ -10,6 +10,7 @@
 # tool / helper definitions as a redundant "API Documentation" list.
 __all__: list[str] = []
 
+import json
 from collections.abc import Callable
 from datetime import datetime
 from http import HTTPStatus
@@ -23,6 +24,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from airbyte import Destination, Source, get_destination, get_source
 from airbyte._direct_connectors import connector_docs
 from airbyte._direct_connectors.models import (
+    _BIGQUERY_DESTINATION_DEFINITION_ID,
     CloudConnectorConnectionInfo,
     ExternalApiExecuteResult,
     ExternalApiReadOnlyAction,
@@ -101,6 +103,13 @@ from airbyte.mcp._docs_results import (
 )
 from airbyte.mcp._error_handling import format_user_facing_error, redact_agent_text
 from airbyte.mcp._guards import is_trusted_execution_enabled
+from airbyte.mcp._record_lookup import (
+    compact_record,
+    is_row_key,
+    key_where,
+    quote_identifier,
+    row_key,
+)
 from airbyte.mcp._scope import (
     record_default_workspace,
     record_resolved_organization,
@@ -2169,6 +2178,124 @@ def execute_external_sql_query(
         return _direct_access_disabled_result(error, connector)
 
 
+@mcp_tool(
+    read_only=True,
+    idempotent=True,
+    open_world=True,
+    external_access=True,
+    tracing=lambda args: agent_action_attributes("get_external_record", args),
+)
+def get_external_record(  # noqa: PLR0914
+    ctx: Context,
+    *,
+    source_id: Annotated[str, Field(description="Source ID from the search hit.")],
+    stream_name: Annotated[str, Field(description="Stream name from the search hit.")],
+    entity_id: Annotated[str, Field(description="Unchanged typed entity_id from the search hit.")],
+    workspace_id: Annotated[
+        str | None, Field(description=RESOURCE_WORKSPACE_ID_TIP_TEXT), TraceArg.OMIT
+    ] = None,
+) -> ExternalApiExecuteResult:
+    """Fetch one full record for an `execute_external_search_query` snippet hit.
+
+    Reads the source's BigQuery destination through SQL passthrough, using the
+    configured stream primary key, namespace and table prefix. Returns data fields
+    without Airbyte metadata or null/empty values, plus the identifying search key.
+    Multiple matching connections or same-name streams are ambiguous and rejected.
+    Keyless row hashes scan at most 1000 candidate rows (not a warehouse byte limit);
+    serialized warehouse dates/decimals may not retain the original hash types.
+    A missing match in that bounded scan does not prove the record is absent.
+    """
+    source = _get_cloud_workspace_for_resource(
+        ctx, workspace_id, connector_id=source_id, connector_type=ConnectorType.SOURCE
+    ).get_connector(source_id)
+    try:
+        hashed = is_row_key(entity_id)
+        connections = [
+            connection
+            for connection in source.list_connections()
+            if connection.destination.definition_id == _BIGQUERY_DESTINATION_DEFINITION_ID
+        ]
+        if not connections:
+            raise ValueError(  # noqa: TRY301
+                "No BigQuery destination for this source. Connect the source to BigQuery first."
+            )
+        matches = [
+            (connection, entry)
+            for connection in connections
+            for entry in (connection.dump_raw_catalog() or {}).get("streams", [])
+            if stream_name
+            in {entry["stream"]["name"], connection.table_prefix + entry["stream"]["name"]}
+        ]
+        if not matches:
+            raise ValueError(  # noqa: TRY301
+                "Unknown stream. Use a stream name from the connection's configured catalog."
+            )
+        if len(matches) != 1:
+            raise ValueError(  # noqa: TRY301
+                "Stream has multiple BigQuery connections or namespaces. "
+                "Use external SQL with an explicit table."
+            )
+        connection, entry = matches[0]
+        config = connection.destination.configuration or {}
+        namespace = config.get("dataset_id")
+        source_namespace = entry["stream"].get("namespace")
+        if connection.namespace_definition == "source":
+            namespace = source_namespace or namespace
+        elif connection.namespace_definition == "custom_format":
+            namespace = (connection.namespace_format or "").replace(
+                "${SOURCE_NAMESPACE}", source_namespace or ""
+            )
+        project = config.get("project_id")
+        if not project or not namespace or "${" in namespace:
+            raise ValueError(  # noqa: TRY301
+                "BigQuery project or dataset cannot be resolved. "
+                "Check the destination and connection namespace settings."
+            )
+        table_name = connection.table_prefix + entry["stream"]["name"]
+        table = quote_identifier(f"{project}.{namespace}.{table_name}")
+        primary_key = (
+            entry.get("primary_key") or entry["stream"].get("source_defined_primary_key") or []
+        )
+        predicate = "TRUE" if hashed else key_where(entity_id, primary_key)
+        limit = 1000 if hashed else 1
+        result = execute_external_sql_query(
+            ctx,
+            connector_id=connection.destination_id,
+            sql=(
+                f"SELECT TO_JSON_STRING(t) AS record_json FROM {table} AS t "
+                f"WHERE {predicate} LIMIT {limit}"
+            ),
+            sql_dialect="bigquery",
+            page_size=limit,
+            workspace_id=workspace_id,
+        )
+        if result.errors or result.status != "success":
+            return result
+        rows = [json.loads(row["record_json"]) for row in result.result["data"]]
+        record = next((row for row in rows if not hashed or row_key(row) == entity_id), None)
+        if record is None:
+            raise ValueError(  # noqa: TRY301
+                (  # noqa: UP034
+                    "No matching record in the first 1000 candidate rows. "
+                    "The row hash may have changed or lost warehouse type information."
+                    if hashed
+                    else "No matching record in BigQuery. "
+                    "Check that the source has synced and the search hit is current."
+                )
+            )
+        return ExternalApiExecuteResult(
+            status="success",
+            result={
+                "source_id": source_id,
+                "stream": stream_name,
+                "entity_id": entity_id,
+                "data": compact_record(record),
+            },
+        )
+    except ValueError as error:
+        return ExternalApiExecuteResult(status="error", errors=[str(error)])
+
+
 def _search_disabled_errors(
     error: AirbyteExternalAccessNotEnabledError,
     connector: CloudConnector,
@@ -2321,8 +2448,8 @@ def execute_external_search_query(  # noqa: PLR0913  # Explicit args mirror the 
     Hits are always snippets: each hit has its `context` (up to 512 characters unless
     `max_context_chars` says otherwise), `stream_name`, `namespace` and `entity_id`,
     with an empty `entity_data`. Pick the hits you need from the snippets, then read
-    their full records from the source with `execute_external_api_query` or
-    `execute_external_sql_query`. `entity_id` is a search record key (a JSON array of
+    their full records with `get_external_record(source_id, stream_name, entity_id)`
+    from the source's BigQuery destination. `entity_id` is a search record key (a JSON array of
     the record's typed primary key values), not a source API ID. Use `streams[].fields`
     to return only some `entity_data` fields (an output projection, not a match
     filter). `min_similarity` and `max_similarity_diff` apply only to
