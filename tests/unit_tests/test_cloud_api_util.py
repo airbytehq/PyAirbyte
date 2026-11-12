@@ -14,6 +14,8 @@ import requests
 import responses
 from airbyte import constants
 from airbyte._util import api_util, cloud_errors, meta
+from airbyte.cloud.connections import CloudConnection
+from airbyte.cloud.workspaces import CloudWorkspace
 from airbyte.cloud.models import (
     CloudConnectionInfo,
     CloudJobInfo,
@@ -32,6 +34,251 @@ from airbyte.registry import ConnectorType
 from airbyte.secrets.base import SecretString
 from airbyte_api import api, models, utils
 from airbyte_api.errors import SDKError
+
+
+@pytest.mark.parametrize("stream_names", [["orders"], []])
+def test_build_stream_configurations_creation_defaults(
+    monkeypatch: pytest.MonkeyPatch,
+    stream_names: list[str],
+) -> None:
+    """Cached properties supply explicit defaults only when new streams exist."""
+    lookup = Mock(return_value=[models.StreamProperties(stream_name="orders")])
+    monkeypatch.setattr(api_util, "get_source_stream_properties", lookup)
+    configurations = _build_stream_configurations(stream_names)
+
+    assert configurations.streams == [
+        models.StreamConfiguration(
+            name=name,
+            sync_mode=models.ConnectionSyncModeEnum.FULL_REFRESH_OVERWRITE,
+        )
+        for name in stream_names
+    ]
+    if stream_names:
+        lookup.assert_called_once_with(
+            "source-id",
+            destination_id="destination-id",
+            ignore_cache=False,
+            api_root="https://api.airbyte.com/v1",
+            client_id=None,
+            client_secret=None,
+            bearer_token=None,
+        )
+    else:
+        lookup.assert_not_called()
+
+
+def _build_stream_configurations(
+    stream_names: list[str],
+) -> models.StreamConfigurations:
+    return api_util.build_stream_configurations(
+        stream_names,
+        source_id="source-id",
+        destination_id="destination-id",
+        api_root="https://api.airbyte.com/v1",
+        client_id=None,
+        client_secret=None,
+        bearer_token=None,
+    )
+
+
+@pytest.mark.parametrize(
+    ("supported", "cursor", "source_cursor", "primary_key", "expected"),
+    [
+        (
+            ["incremental_deduped_history", "incremental_append"],
+            ["updated"],
+            False,
+            [["id"]],
+            "incremental_deduped_history",
+        ),
+        (
+            ["incremental_deduped_history", "incremental_append"],
+            ["updated"],
+            True,
+            [["id"]],
+            "incremental_deduped_history",
+        ),
+        (
+            ["incremental_deduped_history", "incremental_append"],
+            None,
+            True,
+            [["id"]],
+            "incremental_deduped_history",
+        ),
+        (
+            ["incremental_deduped_history", "incremental_append"],
+            ["updated"],
+            False,
+            [],
+            "incremental_append",
+        ),
+        (["incremental_append"], ["updated"], False, [["id"]], "incremental_append"),
+        (
+            [
+                "incremental_deduped_history",
+                "incremental_append",
+                "full_refresh_overwrite_deduped",
+            ],
+            [],
+            False,
+            [["id"]],
+            "full_refresh_overwrite_deduped",
+        ),
+        (
+            ["full_refresh_overwrite_deduped"],
+            ["updated"],
+            False,
+            [["id"]],
+            "full_refresh_overwrite_deduped",
+        ),
+        (
+            ["full_refresh_overwrite_deduped"],
+            ["updated"],
+            False,
+            None,
+            None,
+        ),
+        (["incremental_append"], None, False, [["id"]], None),
+        (
+            ["full_refresh_append"],
+            ["updated"],
+            False,
+            [["id"]],
+            "full_refresh_append",
+        ),
+        (
+            ["incremental_append", "full_refresh_append"],
+            None,
+            False,
+            None,
+            "full_refresh_append",
+        ),
+        (
+            ["full_refresh_append", "full_refresh_overwrite"],
+            None,
+            False,
+            None,
+            "full_refresh_overwrite",
+        ),
+        (
+            ["full_refresh_overwrite"],
+            ["updated"],
+            False,
+            [["id"]],
+            "full_refresh_overwrite",
+        ),
+        ([], None, False, None, "full_refresh_overwrite"),
+    ],
+)
+def test_default_stream_configuration(
+    monkeypatch: pytest.MonkeyPatch,
+    supported: list[str],
+    cursor: list[str] | None,
+    source_cursor: bool,
+    primary_key: list[list[str]] | None,
+    expected: str | None,
+) -> None:
+    """Mode priority respects support and cursor/key requirements."""
+    warning = Mock()
+    monkeypatch.setattr(api_util.logger, "warning", warning)
+    properties = models.StreamProperties(
+        stream_name="orders",
+        streamnamespace="sales",
+        sync_modes=[models.ConnectionSyncModeEnum(mode) for mode in supported],
+        default_cursor_field=cursor,
+        source_defined_cursor_field=source_cursor,
+        source_defined_primary_key=primary_key,
+    )
+
+    result = api_util._default_stream_configuration(properties)
+
+    assert result == models.StreamConfiguration(
+        name="orders",
+        namespace="sales",
+        sync_mode=(
+            models.ConnectionSyncModeEnum(expected) if expected is not None else None
+        ),
+        cursor_field=(
+            cursor
+            if expected in {"incremental_deduped_history", "incremental_append"}
+            else None
+        ),
+        primary_key=(
+            primary_key
+            if expected
+            in {"incremental_deduped_history", "full_refresh_overwrite_deduped"}
+            else None
+        ),
+    )
+    if expected is None:
+        warning.assert_called_once_with(
+            "No supported default sync mode qualifies for stream %s; using API defaults.",
+            "orders",
+        )
+    else:
+        warning.assert_not_called()
+
+
+def test_build_stream_configurations_lookup_failure(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Lookup failures warn and preserve the API's name-only fallback."""
+    monkeypatch.setattr(
+        api_util,
+        "get_source_stream_properties",
+        Mock(side_effect=AirbyteCloudError(message="Unavailable")),
+    )
+    warning = Mock()
+    monkeypatch.setattr(api_util.logger, "warning", warning)
+
+    result = _build_stream_configurations(["orders"])
+
+    assert result.streams == [models.StreamConfiguration(name="orders")]
+    warning.assert_called_once()
+    assert "new streams will use API defaults" in warning.call_args.args[0]
+
+
+def test_create_connection_uses_destination_stream_properties(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Connection creation submits defaults from cached source/destination properties."""
+    properties = models.StreamProperties(
+        stream_name="no_such_stream",
+        streamnamespace="sales",
+        sync_modes=[models.ConnectionSyncModeEnum.INCREMENTAL_DEDUPED_HISTORY],
+        default_cursor_field=["updated"],
+        source_defined_primary_key=[["id"]],
+    )
+    lookup = Mock(return_value=SimpleNamespace(stream_properties_response=[properties]))
+    create = Mock(
+        return_value=SimpleNamespace(status_code=200, connection_response=Mock())
+    )
+    monkeypatch.setattr(
+        api_util,
+        "get_airbyte_server_instance",
+        Mock(
+            return_value=SimpleNamespace(
+                streams=SimpleNamespace(get_stream_properties=lookup),
+                connections=SimpleNamespace(create_connection=create),
+            )
+        ),
+    )
+
+    _call_create_connection()
+
+    request = lookup.call_args.args[0]
+    assert request.source_id == "source-id"
+    assert request.destination_id == "destination-id"
+    assert request.ignore_cache is False
+    assert create.call_args.args[0].configurations.streams == [
+        models.StreamConfiguration(
+            name="no_such_stream",
+            namespace="sales",
+            sync_mode=models.ConnectionSyncModeEnum.INCREMENTAL_DEDUPED_HISTORY,
+            cursor_field=["updated"],
+            primary_key=[["id"]],
+        )
+    ]
 
 
 @pytest.mark.parametrize("interval_hours", [1, 24, 168])
@@ -1303,6 +1550,37 @@ def test_list_connections_paginates_resources(
     assert [
         (request.limit, request.offset) for request in captured_requests
     ] == expected_requests
+
+
+@responses.activate
+def test_set_selected_streams_refuses_undecodable_stream_mappers(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A lenient read must not permit a write that would discard stream mappers."""
+    api_root = "https://api.airbyte.test/api/public/v1"
+    connection_id = "connection-id"
+    url = f"{api_root}/connections/{connection_id}"
+    responses.get(url, json=_connection_with_field_filtering_mapper(connection_id))
+    patch = Mock()
+    monkeypatch.setattr(api_util, "patch_connection", patch)
+    connection = CloudConnection(
+        workspace=CloudWorkspace(
+            workspace_id="workspace-id",
+            api_root=api_root,
+            bearer_token=SecretString("bearer-token"),
+        ),
+        connection_id=connection_id,
+    )
+
+    with pytest.raises(
+        AirbyteCloudError, match="Stream mappers could not be read safely"
+    ) as exc:
+        connection.set_selected_streams(["leads"])
+
+    assert "Nothing was changed" in str(exc.value)
+    assert "Airbyte Cloud UI" in str(exc.value)
+    patch.assert_not_called()
+    assert [call.request.method for call in responses.calls] == ["GET", "GET"]
 
 
 @responses.activate

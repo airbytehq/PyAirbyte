@@ -929,6 +929,36 @@ def list_destinations(
 # Get and run connections
 
 
+def get_source_stream_properties(
+    source_id: str,
+    *,
+    destination_id: str | None = None,
+    ignore_cache: bool = False,
+    api_root: str,
+    client_id: SecretString | None,
+    client_secret: SecretString | None,
+    bearer_token: SecretString | None,
+) -> list[models.StreamProperties]:
+    """Return stream properties, optionally narrowed to a destination's supported modes."""
+    airbyte_instance = get_airbyte_server_instance(
+        client_id=client_id,
+        client_secret=client_secret,
+        bearer_token=bearer_token,
+        api_root=api_root,
+    )
+    try:
+        response = airbyte_instance.streams.get_stream_properties(
+            api.GetStreamPropertiesRequest(
+                source_id=source_id,
+                destination_id=destination_id,
+                ignore_cache=ignore_cache,
+            ),
+        )
+    except SDKError as e:
+        raise _wrap_sdk_error(e, {"source_id": source_id, "api_root": api_root}) from e
+    return response.stream_properties_response or []
+
+
 def get_source_stream_names(
     source_id: str,
     *,
@@ -938,35 +968,28 @@ def get_source_stream_names(
     bearer_token: SecretString | None,
 ) -> list[str]:
     """Discover a source's streams (bypassing the cached catalog) and return their names."""
-    airbyte_instance = get_airbyte_server_instance(
+    properties = get_source_stream_properties(
+        source_id,
+        ignore_cache=True,
         client_id=client_id,
         client_secret=client_secret,
         bearer_token=bearer_token,
         api_root=api_root,
     )
-    try:
-        response = airbyte_instance.streams.get_stream_properties(
-            api.GetStreamPropertiesRequest(source_id=source_id, ignore_cache=True),
-        )
-    except SDKError as e:
-        raise _wrap_sdk_error(e, {"source_id": source_id, "api_root": api_root}) from e
-    return [
-        stream.stream_name
-        for stream in response.stream_properties_response or []
-        if stream.stream_name
-    ]
+    return [stream.stream_name for stream in properties if stream.stream_name]
 
 
 def get_connection(
     connection_id: str,
     *,
     workspace_id: str | None = None,
+    allow_mapper_loss: bool = True,
     api_root: str,
     client_id: SecretString | None,
     client_secret: SecretString | None,
     bearer_token: SecretString | None,
 ) -> models.ConnectionResponse:
-    """Get a connection."""
+    """Get a connection, optionally refusing fallback decoding that drops stream mappers."""
     _ = workspace_id  # Not used (yet)
     airbyte_instance = get_airbyte_server_instance(
         client_id=client_id,
@@ -1001,7 +1024,8 @@ def get_connection(
                 client_id=client_id,
                 client_secret=client_secret,
                 bearer_token=bearer_token,
-            )
+            ),
+            allow_mapper_loss=allow_mapper_loss,
         )
 
     if status_ok(response.status_code) and response.connection_response:
@@ -1991,8 +2015,73 @@ def patch_destination(
 # Create and delete connections
 
 
+def _default_stream_configuration(
+    properties: models.StreamProperties,
+) -> models.StreamConfiguration:
+    """Choose the best supported mode whose cursor and key requirements are satisfied."""
+    modes = properties.sync_modes or []
+    has_cursor = bool(properties.source_defined_cursor_field or properties.default_cursor_field)
+    has_primary_key = bool(properties.source_defined_primary_key)
+    mode = models.ConnectionSyncModeEnum.FULL_REFRESH_OVERWRITE
+    for candidate, valid in (
+        (models.ConnectionSyncModeEnum.INCREMENTAL_DEDUPED_HISTORY, has_cursor and has_primary_key),
+        (models.ConnectionSyncModeEnum.INCREMENTAL_APPEND, has_cursor),
+        (models.ConnectionSyncModeEnum.FULL_REFRESH_OVERWRITE_DEDUPED, has_primary_key),
+    ):
+        if valid and candidate in modes:
+            mode = candidate
+            break
+    else:
+        if modes and mode not in modes:
+            if models.ConnectionSyncModeEnum.FULL_REFRESH_APPEND in modes:
+                return models.StreamConfiguration(
+                    name=properties.stream_name or "",
+                    namespace=properties.streamnamespace,
+                    sync_mode=models.ConnectionSyncModeEnum.FULL_REFRESH_APPEND,
+                )
+            logger.warning(
+                "No supported default sync mode qualifies for stream %s; using API defaults.",
+                properties.stream_name,
+            )
+            return models.StreamConfiguration(
+                name=properties.stream_name or "",
+                namespace=properties.streamnamespace,
+            )
+    return models.StreamConfiguration(
+        name=properties.stream_name or "",
+        namespace=properties.streamnamespace,
+        sync_mode=mode,
+        cursor_field=(
+            properties.default_cursor_field
+            if mode
+            in {
+                models.ConnectionSyncModeEnum.INCREMENTAL_DEDUPED_HISTORY,
+                models.ConnectionSyncModeEnum.INCREMENTAL_APPEND,
+            }
+            else None
+        ),
+        primary_key=(
+            properties.source_defined_primary_key
+            if mode
+            in {
+                models.ConnectionSyncModeEnum.INCREMENTAL_DEDUPED_HISTORY,
+                models.ConnectionSyncModeEnum.FULL_REFRESH_OVERWRITE_DEDUPED,
+            }
+            else None
+        ),
+    )
+
+
 def build_stream_configurations(
     stream_names: list[str],
+    *,
+    source_id: str,
+    destination_id: str,
+    api_root: str,
+    client_id: SecretString | None,
+    client_secret: SecretString | None,
+    bearer_token: SecretString | None,
+    existing_streams: list[models.StreamConfiguration] | None = None,
 ) -> models.StreamConfigurations:
     """Build a StreamConfigurations object from a list of stream names.
 
@@ -2001,13 +2090,52 @@ def build_stream_configurations(
 
     Args:
         stream_names: List of stream names to include in the configuration
+        existing_streams: Current stream settings to preserve for selected names.
+        source_id: Source whose cached stream properties supply new-stream defaults.
+        destination_id: Destination used to narrow the supported sync modes.
+        api_root: Public API root URL.
+        client_id: Client ID for authentication.
+        client_secret: Client secret for authentication.
+        bearer_token: Bearer token for authentication.
 
     Returns:
         StreamConfigurations object ready for API submission
     """
-    stream_configurations = [
-        models.StreamConfiguration(name=stream_name) for stream_name in stream_names
-    ]
+    existing_streams = existing_streams or []
+    properties: list[models.StreamProperties] = []
+    if any(not any(stream.name == name for stream in existing_streams) for name in stream_names):
+        try:
+            properties = get_source_stream_properties(
+                source_id,
+                destination_id=destination_id,
+                ignore_cache=False,
+                api_root=api_root,
+                client_id=client_id,
+                client_secret=client_secret,
+                bearer_token=bearer_token,
+            )
+        except Exception:
+            logger.warning(
+                "Could not load stream properties; new streams will use API defaults. "
+                "Review their sync modes after saving the connection."
+            )
+    stream_configurations: list[models.StreamConfiguration] = []
+    for stream_name in stream_names:
+        matching_streams = [
+            copy.deepcopy(stream) for stream in existing_streams if stream.name == stream_name
+        ]
+        for stream in matching_streams:
+            if stream.selected_fields == []:
+                stream.selected_fields = None
+        stream_configurations.extend(
+            matching_streams
+            or [
+                _default_stream_configuration(stream)
+                for stream in properties
+                if stream.stream_name == stream_name
+            ]
+            or [models.StreamConfiguration(name=stream_name)]
+        )
     return models.StreamConfigurations(streams=stream_configurations)
 
 
@@ -2042,7 +2170,15 @@ def create_connection(  # noqa: PLR0913  # Too many arguments
         bearer_token=bearer_token,
         api_root=api_root,
     )
-    stream_configurations_obj = build_stream_configurations(selected_stream_names)
+    stream_configurations_obj = build_stream_configurations(
+        selected_stream_names,
+        source_id=source_id,
+        destination_id=destination_id,
+        api_root=api_root,
+        client_id=client_id,
+        client_secret=client_secret,
+        bearer_token=bearer_token,
+    )
     try:
         response = airbyte_instance.connections.create_connection(
             models.ConnectionCreateRequest(
@@ -2542,6 +2678,8 @@ def _decode_with_unknown_status(
 
 def _lenient_decode_connection(
     raw: dict[str, Any],
+    *,
+    allow_mapper_loss: bool = True,
 ) -> models.ConnectionResponse:
     """Decode a connection after dropping stream mappers and tolerating unknown status values."""
     cleaned = copy.deepcopy(raw)
@@ -2549,6 +2687,11 @@ def _lenient_decode_connection(
     if configurations is not None:
         for stream in configurations.get("streams") or []:
             if isinstance(stream, dict):
+                if not allow_mapper_loss and stream.get("mappers"):
+                    raise AirbyteCloudError(
+                        message="Stream mappers could not be read safely. Nothing was changed.",
+                        guidance="Change stream selection in the Airbyte Cloud UI instead.",
+                    )
                 stream.pop("mappers", None)
 
     return _decode_with_unknown_status(

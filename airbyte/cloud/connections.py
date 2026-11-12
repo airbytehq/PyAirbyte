@@ -282,6 +282,7 @@ class CloudConnection:  # noqa: PLR0904  # Too many public methods
         *,
         force_refresh: bool = False,
         verify: bool = True,
+        allow_mapper_loss: bool = True,
     ) -> CloudConnectionInfo:
         """Fetch and cache connection info from the API.
 
@@ -295,6 +296,7 @@ class CloudConnection:  # noqa: PLR0904  # Too many public methods
             verify: If True (default), verify that the connection is valid (e.g., that
                 the workspace_id matches this object's workspace). Raises an error if
                 validation fails.
+            allow_mapper_loss: Allow fallback decoding to omit unreadable stream mappers.
 
         Returns:
             Information about the connection from the API.
@@ -318,6 +320,7 @@ class CloudConnection:  # noqa: PLR0904  # Too many public methods
             client_id=self.workspace.client_id,
             client_secret=self.workspace.client_secret,
             bearer_token=self.workspace.bearer_token,
+            **({"allow_mapper_loss": False} if not allow_mapper_loss else {}),
         )
         result = CloudConnectionInfo.from_api_response(connection_info)
 
@@ -1456,6 +1459,13 @@ class CloudConnection:  # noqa: PLR0904  # Too many public methods
     def set_selected_streams(self, stream_names: list[str]) -> CloudConnection:
         """Set the selected streams for the connection.
 
+        Kept streams keep their settings. New streams get the best supported mode:
+        `incremental_deduped_history`, `incremental_append`,
+        `full_refresh_overwrite_deduped`, `full_refresh_overwrite`, then
+        `full_refresh_append`, subject to
+        cursor and primary-key availability. If properties cannot be loaded, new
+        streams use API defaults instead.
+
         This is a destructive operation that can break existing connections if the
         stream selection is changed incorrectly. Use with caution.
 
@@ -1465,7 +1475,17 @@ class CloudConnection:  # noqa: PLR0904  # Too many public methods
         Returns:
             Updated CloudConnection object with refreshed info
         """
-        configurations = api_util.build_stream_configurations(stream_names)
+        connection_info = self._fetch_connection_info(force_refresh=True, allow_mapper_loss=False)
+        configurations = api_util.build_stream_configurations(
+            stream_names,
+            source_id=connection_info.source_id,
+            destination_id=connection_info.destination_id,
+            api_root=self.workspace.api_root,
+            client_id=self.workspace.client_id,
+            client_secret=self.workspace.client_secret,
+            bearer_token=self.workspace.bearer_token,
+            existing_streams=connection_info.configurations.streams,
+        )
 
         try:
             updated_response = api_util.patch_connection(
