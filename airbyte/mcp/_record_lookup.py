@@ -10,6 +10,39 @@ from decimal import Decimal
 from typing import Any
 
 
+def normalize_entity_id(entity_id: str) -> str:
+    """Unwrap common transport/agent escaping without changing valid key values."""
+    candidate = entity_id
+    for _ in range(12):
+        candidate = candidate.strip()
+        if re.fullmatch(r"row-sha256:[0-9a-f]{64}", candidate):
+            return candidate
+        try:
+            decoded = json.loads(candidate)
+        except ValueError:
+            unescaped = re.sub(r'\\+"', '"', candidate)
+            if unescaped == candidate:
+                if (
+                    len(candidate) > 1
+                    and candidate[0] == candidate[-1]
+                    and candidate[0] in {"'", '"'}
+                ):
+                    candidate = candidate[1:-1]
+                    continue
+                break
+            candidate = unescaped
+            continue
+        if isinstance(decoded, list):
+            return json.dumps(decoded, ensure_ascii=False, separators=(",", ":"), allow_nan=False)
+        if not isinstance(decoded, str):
+            break
+        candidate = decoded
+    raise ValueError(
+        'Malformed entity_id. Pass the search hit string unchanged, e.g. [["int",42]] '
+        "or row-sha256:<64 hexadecimal characters>, with no extra quoting or escaping."
+    )
+
+
 def quote_identifier(value: str) -> str:
     """Quote a warehouse identifier without permitting SQL delimiters."""
     if not value or any(char in value for char in "`\\\x00\n\r"):

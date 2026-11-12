@@ -107,6 +107,7 @@ from airbyte.mcp._record_lookup import (
     compact_record,
     is_row_key,
     key_where,
+    normalize_entity_id,
     quote_identifier,
     row_key,
 )
@@ -2190,12 +2191,23 @@ def get_external_record(  # noqa: PLR0914
     *,
     source_id: Annotated[str, Field(description="Source ID from the search hit.")],
     stream_name: Annotated[str, Field(description="Stream name from the search hit.")],
-    entity_id: Annotated[str, Field(description="Unchanged typed entity_id from the search hit.")],
+    entity_id: Annotated[
+        str,
+        Field(
+            description=(
+                "Pass the hit's entity_id string exactly as returned, unchanged "
+                "(no extra quoting or escaping)."
+            )
+        ),
+    ],
     workspace_id: Annotated[
         str | None, Field(description=RESOURCE_WORKSPACE_ID_TIP_TEXT), TraceArg.OMIT
     ] = None,
 ) -> ExternalApiExecuteResult:
     """Fetch one full record for an `execute_external_search_query` snippet hit.
+
+    Pass the hit's `entity_id` string exactly as returned, unchanged (no extra
+    quoting or escaping).
 
     Reads the source's BigQuery destination through SQL passthrough, using the
     configured stream primary key, namespace and table prefix. Returns data fields
@@ -2209,6 +2221,7 @@ def get_external_record(  # noqa: PLR0914
         ctx, workspace_id, connector_id=source_id, connector_type=ConnectorType.SOURCE
     ).get_connector(source_id)
     try:
+        entity_id = normalize_entity_id(entity_id)
         hashed = is_row_key(entity_id)
         connections = [
             connection
@@ -2449,6 +2462,8 @@ def execute_external_search_query(  # noqa: PLR0913  # Explicit args mirror the 
     `max_context_chars` says otherwise), `stream_name`, `namespace` and `entity_id`,
     with an empty `entity_data`. Pick the hits you need from the snippets, then read
     their full records with `get_external_record(source_id, stream_name, entity_id)`
+    passing the hit's `entity_id` string exactly as returned, unchanged (no extra
+    quoting or escaping),
     from the source's BigQuery destination. `entity_id` is a search record key (a JSON array of
     the record's typed primary key values), not a source API ID. Use `streams[].fields`
     to return only some `entity_data` fields (an output projection, not a match

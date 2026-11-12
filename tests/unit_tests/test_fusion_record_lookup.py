@@ -1,5 +1,6 @@
 """Fusion search-key record retrieval coverage."""
 
+import json
 from types import SimpleNamespace
 from unittest.mock import Mock
 
@@ -12,8 +13,63 @@ from airbyte.mcp._record_lookup import (
     compact_record,
     is_row_key,
     key_where,
+    normalize_entity_id,
     row_key,
 )
+
+
+@pytest.mark.parametrize(
+    "canonical", ['[["int",42]]', '[["str","abc"],["int",3]]', "row-sha256:" + "a" * 64]
+)
+@pytest.mark.parametrize(
+    "variant",
+    [
+        "exact",
+        "once",
+        "twice",
+        "slashes_one",
+        "slashes_two",
+        "slashes_four",
+        "quotes",
+        "single_quotes",
+        "whitespace",
+    ],
+)
+def test_normalize_entity_id(canonical: str, variant: str) -> None:
+    variants = {
+        "exact": canonical,
+        "once": json.dumps(canonical),
+        "twice": json.dumps(json.dumps(canonical)),
+        "slashes_one": canonical.replace('"', '\\"'),
+        "slashes_two": canonical.replace('"', '\\\\"'),
+        "slashes_four": canonical.replace('"', '\\\\\\\\"'),
+        "quotes": '"' + canonical + '"',
+        "single_quotes": "'" + canonical + "'",
+        "whitespace": " \n\t" + canonical + "  ",
+    }
+    assert normalize_entity_id(variants[variant]) == canonical
+
+
+def test_normalization_preserves_valid_string_values() -> None:
+    canonical = json.dumps([["str", 'a"b\\c']], separators=(",", ":"))
+    assert normalize_entity_id(json.dumps(json.dumps(canonical))) == canonical
+    assert normalize_entity_id(' [ [ "int", 42 ] ] ') == '[["int",42]]'
+
+
+@pytest.mark.parametrize(
+    "key", ["", "garbage", "null", "42", "{}", '[["int",42]', '"row-sha256:abc"']
+)
+def test_normalize_malformed(key: str) -> None:
+    with pytest.raises(ValueError, match=r'Malformed entity_id.*\[\["int",42\]\]'):
+        normalize_entity_id(key)
+
+
+def test_normalization_is_bounded() -> None:
+    key = '[["int",42]]'
+    for _ in range(20):
+        key = json.dumps(key)
+    with pytest.raises(ValueError, match="Malformed entity_id"):
+        normalize_entity_id(key)
 
 
 @pytest.mark.parametrize(
@@ -130,10 +186,16 @@ def lookup(monkeypatch: pytest.MonkeyPatch) -> tuple[Mock, Mock, SimpleNamespace
     return source, query, connection
 
 
-def test_tool_flow(lookup: tuple[Mock, Mock, SimpleNamespace]) -> None:
+@pytest.mark.parametrize("wrapped", [False, True])
+def test_tool_flow(lookup: tuple[Mock, Mock, SimpleNamespace], wrapped: bool) -> None:
     _, query, _ = lookup
     result = cloud.get_external_record(
-        None, source_id="source", stream_name="issues", entity_id='[["int",42]]'
+        None,
+        source_id="source",
+        stream_name="issues",
+        entity_id=(
+            json.dumps(json.dumps('[["int",42]]')) if wrapped else '[["int",42]]'
+        ),
     )
     assert result.result == {
         "source_id": "source",
@@ -183,9 +245,13 @@ def test_hash_flow(lookup: tuple[Mock, Mock, SimpleNamespace]) -> None:
     _, query, _ = lookup
     key = row_key({"id": 42, "body": "full text", "empty": None})
     result = cloud.get_external_record(
-        None, source_id="source", stream_name="issues", entity_id=key
+        None,
+        source_id="source",
+        stream_name="issues",
+        entity_id=json.dumps(json.dumps(key)),
     )
     assert result.status == "success"
+    assert result.result["entity_id"] == key
     assert query.call_args.kwargs["sql"].endswith("WHERE TRUE LIMIT 1000")
 
 
