@@ -280,6 +280,7 @@ def test_mcp_tool_force_disabled_skips_registration() -> None:
 def test_server_tools_register_expected_policies() -> None:
     assert server_module.app
     external_tools = (
+        "get_external_sql_schema",
         "execute_external_api_query",
         "execute_external_sql_query",
         "execute_external_search_query",

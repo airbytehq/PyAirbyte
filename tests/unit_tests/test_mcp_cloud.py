@@ -2127,6 +2127,7 @@ class _RecordingExecuteConnector:
         self.error = error
         self.connector_id = connector_id
         self.connector_type = connector_type
+        self.definition_id = next(iter(_SQL_PASSTHROUGH_DESTINATION_DIALECTS))
 
     def execute_api_query(
         self, entity_type: str, action: object, api_args: object, **kwargs: object
@@ -2405,7 +2406,7 @@ def test_execute_external_sql_query_forwards_args(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """The SQL tool forwards `sql`/`sql_dialect`/`page_size`/`cursor`."""
-    connector = _RecordingExecuteConnector()
+    connector = _RecordingExecuteConnector(connector_type=ConnectorType.DESTINATION)
     _execute_workspace(monkeypatch, connector)
 
     cloud_mcp.execute_external_sql_query(

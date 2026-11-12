@@ -24,9 +24,12 @@ Key conventions:
 
 Cloud API error text comes from the response's nonempty `detail`, falling back to `title`.
 PyAirbyte preserves the selected string; fix poor Cloud wording in the platform.
-Only actor-not-ready setup instructions, 403 resource/access guidance, and sync-start
-409 recovery guidance are added. Sync-start 409s append narrowly typed disabled-connection or active-job recovery
-guidance; other local messages and guidance never override the selected Cloud text.
+Only actor-not-ready setup instructions, 403 resource/access guidance, sync-start
+409 recovery guidance, and SQL-destination recovery guidance are added. Sync-start 409s
+append narrowly typed disabled-connection or active-job recovery guidance. SQL tools
+append valid SQL-passthrough destination IDs, names and dialects after the Cloud text
+for unknown or non-SQL destinations; other local messages and guidance never override
+the selected Cloud text.
 Bodies must be JSON objects of at most 65,536 UTF-8 bytes; invalid or non-problem responses
 use a status-only fallback. `message`, `data.message`, and `errorId` are not displayed.
 Agent errors, caught-error billing messages, and connector warnings pass through credential

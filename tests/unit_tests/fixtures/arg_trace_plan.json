@@ -113,6 +113,12 @@
   "get_api_docs_urls": {
     "connector_name": "fingerprint"
   },
+  "get_external_sql_schema": {
+    "connector_id": "hash",
+    "max_tables": "value int",
+    "table_name_contains": "fingerprint",
+    "workspace_id": "omit"
+  },
   "get_connection_artifact": {
     "artifact_type": "value allowed=[\"catalog\",\"state\"]",
     "connection_id": "hash",
