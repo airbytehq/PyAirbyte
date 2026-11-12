@@ -51,6 +51,12 @@ jobs:
           fileName: "*"
           out-file-path: dist
 
+      # `pylock.toml` ships on the GitHub release for the Cloud MCP image, but
+      # it is not a distribution, so the PyPI upload would reject it.
+      - name: Remove pylock.toml from upload
+        if: github.event_name == 'release'
+        run: rm -f dist/pylock.toml
+
       # For workflow_dispatch (prereleases): checkout, override version, and build
       - name: Checkout code
         if: github.event_name == 'workflow_dispatch'
