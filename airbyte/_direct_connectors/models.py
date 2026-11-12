@@ -316,10 +316,15 @@ class ExternalSearchHit(BaseModel):
     """The stream the matched entity belongs to."""
 
     entity_id: str
-    """The matched entity's ID."""
+    """The matched entity's search record key: a JSON array of its typed primary key
+    parts, or `row-sha256:<hash>` for a stream without a primary key. Not a source API ID."""
+
+    namespace: str | None = None
+    """The matched entity's stream namespace, when the searched streams resolve it to one."""
 
     entity_data: dict[str, Any] = Field(default_factory=dict)
-    """The matched entity's data, projected to the requested `fields` when given.
+    """The matched entity's data, projected to the requested `fields` when given. Empty
+    in snippet mode, the MCP tool's default.
 
     Null values are not stored, so an absent key means null or unset. A keyword-only hit
     also omits any field longer than 4096 characters or split across keyword chunks; its
@@ -368,6 +373,9 @@ class ExternalSearchIndexMetadata(BaseModel):
     search_time_ms: int | None = None
     """The time spent searching this index, in milliseconds."""
 
+    hits_omitted: int = 0
+    """Ranked hits from this index left out to keep the response within its size budget."""
+
 
 class ExternalSearchResult(BaseModel):
     """The result of searching a connector's indexed data."""
@@ -403,6 +411,12 @@ class ExternalSearchResult(BaseModel):
             for entry in self.metadata
             if entry.error
         ]
+        hits_omitted = sum(entry.hits_omitted for entry in self.metadata)
+        if hits_omitted:
+            collected.append(
+                f"{hits_omitted} ranked hits were left out to keep the response within its "
+                "size budget. Pass `streams` to narrow the search, or lower `limit`."
+            )
         if not self.metadata and not self.errors:
             collected.append(
                 "No index matched this search type and stream selection, so empty results "
@@ -413,6 +427,17 @@ class ExternalSearchResult(BaseModel):
             *self.warnings,
             *(warning for warning in collected if warning not in self.warnings),
         ]
+        return self
+
+    @model_validator(mode="after")
+    def _attach_hit_namespaces(self) -> ExternalSearchResult:
+        namespaces: dict[tuple[str | None, str | None], set[str | None]] = {}
+        for entry in self.metadata:
+            namespaces.setdefault((entry.source_id, entry.stream_name), set()).add(entry.namespace)
+        for hit in self.hits:
+            candidates = namespaces.get((hit.source_id, hit.stream_name), set())
+            if hit.namespace is None and len(candidates) == 1:
+                hit.namespace = next(iter(candidates))
         return self
 
 

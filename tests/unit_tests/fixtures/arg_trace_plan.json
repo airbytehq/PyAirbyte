@@ -91,6 +91,7 @@
     "connector_id": "hash",
     "connector_type": "value allowed=[\"destination\",\"source\"]",
     "destination_id": "hash",
+    "include_entity_data": "value allowed=[false,true]",
     "limit": "value int",
     "lookback_seconds": "hash",
     "max_context_chars": "hash",
