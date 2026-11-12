@@ -18,6 +18,7 @@ import hashlib
 import json
 import re
 import time
+from http.cookies import SimpleCookie
 from typing import TYPE_CHECKING, Any
 from urllib.parse import parse_qs, urlsplit
 
@@ -890,6 +891,15 @@ def test_compatibility_check_names_missing_fastmcp_members(
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.parametrize("method", sso._REQUIRED_FASTMCP_PARAMETERS)  # noqa: SLF001
+def test_compatibility_check_rejects_signature_drift(
+    monkeypatch: MonkeyPatch, method: str
+) -> None:
+    monkeypatch.setattr(sso.OIDCProxy, method, lambda self, unexpected: None)
+    with pytest.raises(RuntimeError, match=f"incompatible {method}"):
+        sso.check_fastmcp_compatibility()
+
+
 def test_login_page_requires_a_live_transaction(harness: _Harness) -> None:
     assert harness.client.get(sso.SSO_LOGIN_PATH).status_code == 400
     assert harness.client.get(f"{sso.SSO_LOGIN_PATH}?txn_id=nope").status_code == 400
@@ -926,7 +936,9 @@ def test_login_page_prefills_last_sso_identifier(harness: _Harness) -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_default_choice_redirects_to_default_realm(harness: _Harness) -> None:
+def test_login_post_default_choice_redirects_to_default_realm(
+    harness: _Harness,
+) -> None:
     txn_id, response = _login_default(harness)
 
     assert response.status_code == 302
@@ -940,7 +952,13 @@ def test_default_choice_redirects_to_default_realm(harness: _Harness) -> None:
     assert query["prompt"] == ["consent"]
     assert "kc_idp_hint" not in query
     assert query["redirect_uri"] == [f"{BASE_URL}/auth/callback"]
-    assert "__Host-MCP_CONSENT_BINDING" in response.cookies
+    cookie_name = harness.proxy._consent_binding_cookie_name(txn_id)  # noqa: SLF001
+    cookie_value = SimpleCookie(f"{cookie_name}={response.cookies[cookie_name]}")[
+        cookie_name
+    ].value
+    assert harness.proxy._verify_cookie(cookie_value) == (  # noqa: SLF001
+        harness.transaction(txn_id).consent_token
+    )
     assert harness.transaction(txn_id).consent_token
     assert harness.choice(txn_id) is None
 
@@ -970,7 +988,11 @@ def test_sso_choice_redirects_to_realm_with_same_client(harness: _Harness) -> No
     )
     assert query["code_challenge"] == [expected_challenge]
     assert txn.consent_token
-    assert "__Host-MCP_CONSENT_BINDING" in response.cookies
+    cookie_name = harness.proxy._consent_binding_cookie_name(txn_id)  # noqa: SLF001
+    cookie_value = SimpleCookie(f"{cookie_name}={response.cookies[cookie_name]}")[
+        cookie_name
+    ].value
+    assert harness.proxy._verify_cookie(cookie_value) == txn.consent_token  # noqa: SLF001
     assert f"__Host-{sso.LAST_REALM_COOKIE}" in response.cookies
     choice = harness.choice(txn_id)
     assert choice is not None
