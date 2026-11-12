@@ -152,6 +152,7 @@ def test_invalid_destination_ids(
     workspace = MagicMock()
     workspace.list_destinations.return_value = [connector]
     connector.name = "Warehouse"
+    connector.workspace = workspace
     workspace.get_connector.return_value = connector
     monkeypatch.setattr(cloud, "_get_cloud_workspace", lambda *_: workspace)
     monkeypatch.setattr(
@@ -233,3 +234,39 @@ def test_destination_guidance_survives_cloud_error_formatting(
     text = format_user_facing_error(caught.value)
     assert "Unknown connector" in text
     assert "destination-1, Warehouse, bigquery" in text
+
+
+@pytest.mark.parametrize("failure_stage", ["lookup", "validation", "execution"])
+def test_destination_ids_use_resolved_workspace(
+    monkeypatch: pytest.MonkeyPatch, failure_stage: str
+) -> None:
+    default = MagicMock()
+    default.list_destinations.return_value = []
+    resolved = MagicMock()
+    connector = _connector()
+    connector.name = "Resolved warehouse"
+    connector.workspace = resolved
+    resolved.list_destinations.return_value = [connector]
+    resolved.get_connector.return_value = connector
+    if failure_stage == "lookup":
+        resolved.get_connector.side_effect = AirbyteMissingResourceError(
+            message="Not found"
+        )
+    elif failure_stage == "validation":
+        resolved.get_connector.return_value = SimpleNamespace(
+            connector_id="bad",
+            definition_id="unsupported",
+            connector_type=ConnectorType.DESTINATION,
+        )
+    else:
+        connector.execute_sql_query.side_effect = AirbyteMissingResourceError(
+            message="Not found"
+        )
+    monkeypatch.setattr(cloud, "_get_cloud_workspace", lambda *_: default)
+    monkeypatch.setattr(
+        cloud, "_get_cloud_workspace_for_resource", lambda *_, **__: resolved
+    )
+    with pytest.raises(AirbyteLibInputError) as caught:
+        cloud.get_external_sql_schema(None, connector_id="bad")
+    assert "Resolved warehouse" in format_user_facing_error(caught.value)
+    default.list_destinations.assert_not_called()

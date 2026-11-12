@@ -2162,7 +2162,9 @@ def execute_external_sql_query(
             dry_run=dry_run,
         )
     except AirbyteMissingResourceError as error:
-        raise _sql_destination_error(ctx, workspace_id, connector_id) from error
+        raise _sql_destination_error(
+            ctx, workspace_id, connector_id, resolved_workspace=connector.workspace
+        ) from error
     except AirbyteExternalAccessNotEnabledError as error:
         if error.enablement_url is None:
             raise
@@ -2170,10 +2172,18 @@ def execute_external_sql_query(
 
 
 def _sql_destination_error(
-    ctx: Context, workspace_id: str | None, connector_id: str
+    ctx: Context,
+    workspace_id: str | None,
+    connector_id: str,
+    *,
+    resolved_workspace: CloudWorkspace | None = None,
 ) -> AirbyteLibInputError:
     try:
-        destinations = list_sql_destinations(_get_cloud_workspace(ctx, workspace_id))
+        destinations = list_sql_destinations(
+            resolved_workspace
+            if resolved_workspace is not None
+            else _get_cloud_workspace(ctx, workspace_id)
+        )
         guidance = "Valid SQL-passthrough destinations (id, name, dialect): " + (
             "; ".join(f"{item['id']}, {item['name']}, {item['dialect']}" for item in destinations)
             or "none in this workspace"
@@ -2191,16 +2201,20 @@ def _sql_destination_error(
 def _get_sql_destination(
     ctx: Context, workspace_id: str | None, connector_id: str
 ) -> CloudConnector:
+    workspace: CloudWorkspace | None = None
     try:
-        connector = _get_cloud_workspace_for_resource(
-            ctx, workspace_id, connector_id=connector_id
-        ).get_connector(connector_id)
+        workspace = _get_cloud_workspace_for_resource(ctx, workspace_id, connector_id=connector_id)
+        connector = workspace.get_connector(connector_id)
     except AirbyteMissingResourceError as error:
-        raise _sql_destination_error(ctx, workspace_id, connector_id) from error
+        raise _sql_destination_error(
+            ctx, workspace_id, connector_id, resolved_workspace=workspace
+        ) from error
     try:
         require_sql_destination(connector)
     except (AirbyteLibInputError, AirbyteMissingResourceError) as error:
-        raise _sql_destination_error(ctx, workspace_id, connector_id) from error
+        raise _sql_destination_error(
+            ctx, workspace_id, connector_id, resolved_workspace=workspace
+        ) from error
     return connector
 
 
@@ -2243,7 +2257,9 @@ def get_external_sql_schema(
             connector, table_name_contains=table_name_contains, max_tables=max_tables
         )
     except AirbyteMissingResourceError as error:
-        raise _sql_destination_error(ctx, workspace_id, connector_id) from error
+        raise _sql_destination_error(
+            ctx, workspace_id, connector_id, resolved_workspace=connector.workspace
+        ) from error
     except AirbyteExternalAccessNotEnabledError as error:
         if error.enablement_url is None:
             raise
