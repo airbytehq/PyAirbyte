@@ -2481,10 +2481,12 @@ def test_execute_external_search_query_forwards_args(
         "min_similarity": 0.3,
         "max_similarity_diff": 0.1,
         "destination_id": "destination-1",
+        "include_entity_data": False,
     }
     (kind, kwargs) = connector.calls[1]
     assert kind == "search"
     assert kwargs["search_type"] is ExternalSearchType.HYBRID
+    assert kwargs["include_entity_data"] is False
     assert kwargs["streams"] == [{"stream_name": "users"}]
     assert kwargs["limit"] is None
     assert isinstance(result, ExternalSearchResult)

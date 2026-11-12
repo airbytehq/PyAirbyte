@@ -121,6 +121,9 @@ if TYPE_CHECKING:
 _MAX_SEARCH_LIMIT = 100
 """The largest `limit` the Cloud search API accepts."""
 
+_SNIPPET_MAX_CONTEXT_CHARS = 512
+"""The default `max_context_chars` for a search that leaves out `entity_data`."""
+
 _SEARCH_NOT_ENABLED_GUIDANCE = (
     "Search requires search indexing to be enabled for this connector, or for a source "
     "synced to this destination. Check `enabled_features` on the connector for "
@@ -662,6 +665,7 @@ class CloudConnector:  # noqa: PLR0904  # Too many public methods
         min_similarity: float | None = None,
         max_similarity_diff: float | None = None,
         destination_id: str | None = None,
+        include_entity_data: bool = True,
     ) -> ExternalSearchResult:
         """Search this connector's indexed data.
 
@@ -672,6 +676,12 @@ class CloudConnector:  # noqa: PLR0904  # Too many public methods
         source synced to more than one enabled destination. Arguments left as `None` are
         omitted so the backend defaults apply. Requires search indexing to be enabled for
         this connector.
+
+        With `include_entity_data=False` (snippet mode), each hit's `entity_data` is `{}`
+        unless a `streams` entry names its `fields`, and `max_context_chars` defaults to
+        512. Stream entries without `fields` are sent with `fields: []` so the backend
+        projects them away; without `streams`, `entity_data` is dropped from each hit
+        after the response arrives.
         """
         self._require_context_layer_api()
         try:
@@ -734,6 +744,15 @@ class CloudConnector:  # noqa: PLR0904  # Too many public methods
                 context={"connector_id": self.connector_id},
             )
 
+        if not include_entity_data:
+            resolved_streams = (
+                None
+                if resolved_streams is None
+                else [{"fields": [], **stream} for stream in resolved_streams]
+            )
+            if max_context_chars is None:
+                max_context_chars = _SNIPPET_MAX_CONTEXT_CHARS
+
         optional_fields: dict[str, Any] = {
             "limit": limit,
             "streams": resolved_streams,
@@ -750,7 +769,7 @@ class CloudConnector:  # noqa: PLR0904  # Too many public methods
         }
 
         try:
-            return agents_api_util.execute_cloud_connector_search(
+            result = agents_api_util.execute_cloud_connector_search(
                 connector_id=self.connector_id,
                 connector_type=self.connector_type,
                 request_body=request_body,
@@ -764,6 +783,10 @@ class CloudConnector:  # noqa: PLR0904  # Too many public methods
                 enablement_url=self.connector_url,
             )
             raise
+        if not include_entity_data and not resolved_streams:
+            for hit in result.hits:
+                hit.entity_data = {}
+        return result
 
     def get_search_status(self) -> ExternalSearchStatusResult:
         """Report search indexing status for this connector.

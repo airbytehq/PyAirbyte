@@ -1059,6 +1059,176 @@ def test_search_request_body_omits_none_and_maps_names(
     }
 
 
+def test_snippet_search_projects_given_streams_server_side(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace = _make_workspace(monkeypatch)
+    _patch_context_layer(monkeypatch)
+    calls = _patch_search(monkeypatch, _SEARCH_RESPONSE)
+    source = _seed_source(workspace, "source-1", "GitHub Issues")
+
+    result = source.execute_search_query(
+        "refunds",
+        streams=[
+            {"stream_name": "issues"},
+            {"stream_name": "users", "fields": ["name"]},
+        ],
+        include_entity_data=False,
+    )
+
+    assert len(calls) == 1
+    assert calls[0]["json"]["streams"] == [
+        {"stream_name": "issues", "fields": []},
+        {"stream_name": "users", "fields": ["name"]},
+    ]
+    assert calls[0]["json"]["max_context_chars"] == 512
+    # Hits are returned as the backend projected them.
+    assert result.hits[0].entity_data == {"title": "Refund request"}
+
+
+def test_snippet_search_without_streams_strips_entity_data(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace = _make_workspace(monkeypatch)
+    _patch_context_layer(monkeypatch)
+    calls = _patch_search(monkeypatch, _SEARCH_RESPONSE)
+    source = _seed_source(workspace, "source-1", "GitHub Issues")
+
+    result = source.execute_search_query("refunds", include_entity_data=False)
+
+    assert len(calls) == 1
+    assert calls[0]["url"].endswith("/sources/source-1/search")
+    assert calls[0]["json"] == {
+        "type": "hybrid",
+        "prompt": "refunds",
+        "max_context_chars": 512,
+    }
+    assert result.hits[0].entity_data == {}
+    assert result.hits[0].context == "Refund request from ACME"
+    assert result.hits[0].entity_id == "42"
+
+
+def test_snippet_search_with_empty_streams_strips_entity_data(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace = _make_workspace(monkeypatch)
+    _patch_context_layer(monkeypatch)
+    _patch_search(monkeypatch, _SEARCH_RESPONSE)
+    source = _seed_source(workspace, "source-1", "GitHub Issues")
+
+    result = source.execute_search_query(
+        "refunds", streams=[], include_entity_data=False
+    )
+
+    assert result.hits[0].entity_data == {}
+    assert result.hits[0].context == "Refund request from ACME"
+
+
+def test_full_record_search_forwards_unchanged_and_keeps_entity_data(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace = _make_workspace(monkeypatch)
+    _patch_context_layer(monkeypatch)
+    calls = _patch_search(monkeypatch, _SEARCH_RESPONSE)
+    source = _seed_source(workspace, "source-1", "GitHub Issues")
+
+    result = source.execute_search_query(
+        "refunds", streams=[{"stream_name": "issues"}], include_entity_data=True
+    )
+
+    assert calls[0]["json"] == {
+        "type": "hybrid",
+        "prompt": "refunds",
+        "streams": [{"stream_name": "issues"}],
+    }
+    assert result.hits[0].entity_data == {"title": "Refund request"}
+
+
+def test_snippet_search_keeps_caller_max_context_chars(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace = _make_workspace(monkeypatch)
+    _patch_context_layer(monkeypatch)
+    calls = _patch_search(monkeypatch, _SEARCH_RESPONSE)
+    source = _seed_source(workspace, "source-1", "GitHub Issues")
+
+    source.execute_search_query(
+        "refunds", max_context_chars=2000, include_entity_data=False
+    )
+
+    assert calls[0]["json"]["max_context_chars"] == 2000
+
+
+def test_snippet_destination_search_still_requires_source_id(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace = _make_workspace(monkeypatch)
+    _patch_context_layer(monkeypatch)
+    calls = _patch_search(monkeypatch, _SEARCH_RESPONSE)
+    destination = _seed_destination(workspace, "destination-1", SNOWFLAKE_DEFINITION_ID)
+
+    with pytest.raises(AirbyteLibInputError, match="`source_id`"):
+        destination.execute_search_query(
+            "refunds", streams=[{"stream_name": "issues"}], include_entity_data=False
+        )
+    destination.execute_search_query(
+        "refunds",
+        streams=[{"stream_name": "issues", "source_id": "source-1"}],
+        include_entity_data=False,
+    )
+
+    assert len(calls) == 1
+    assert calls[0]["json"]["streams"] == [
+        {"stream_name": "issues", "source_id": "source-1", "fields": []}
+    ]
+
+
+@pytest.mark.parametrize(
+    ("metadata_namespaces", "expected"),
+    [
+        pytest.param(["crm"], "crm", id="single_namespace"),
+        pytest.param([None], None, id="no_namespace"),
+        pytest.param(["crm", "sales"], None, id="ambiguous"),
+    ],
+)
+def test_search_hits_get_namespace_from_metadata(
+    metadata_namespaces: list[str | None],
+    expected: str | None,
+) -> None:
+    result = ExternalSearchResult.model_validate({
+        "hits": [
+            {
+                "source_id": "source-1",
+                "stream_name": "deals",
+                "entity_id": '[["int",42]]',
+                "score": 0.9,
+            }
+        ],
+        "metadata": [
+            {"source_id": "source-1", "stream_name": "deals", "namespace": namespace}
+            for namespace in metadata_namespaces
+        ]
+        + [{"source_id": "source-1", "stream_name": "users", "namespace": "other"}],
+    })
+
+    assert result.hits[0].namespace == expected
+
+
+def test_search_warns_when_hits_are_omitted_for_size() -> None:
+    result = ExternalSearchResult.model_validate({
+        "hits": [],
+        "metadata": [
+            {"source_id": "source-1", "stream_name": "issues", "hits_omitted": 3},
+            {"source_id": "source-1", "stream_name": "users", "hits_omitted": 2},
+        ],
+    })
+
+    assert result.warnings == [
+        "5 ranked hits were left out to keep the response within its size budget. "
+        "Pass `streams` to narrow the search, or lower `limit`."
+    ]
+
+
 def test_search_parses_response_and_collects_index_errors(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
