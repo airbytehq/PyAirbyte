@@ -41,6 +41,8 @@ jobs:
     environment:
       name: PyPi
       url: https://pypi.org/p/airbyte
+    outputs:
+      source_sha: ${{ steps.source-sha.outputs.source_sha }}
     steps:
       # For release events: download pre-built assets
       - name: Download release assets
@@ -65,6 +67,13 @@ jobs:
           ref: ${{ github.event.inputs.git_ref }}
           fetch-depth: 0
           persist-credentials: false
+
+      # The preview deploy exports this commit's lock for the dev wheel, so
+      # record the commit `git_ref` resolved to, not this workflow's `GITHUB_SHA`.
+      - name: Resolve build source SHA
+        id: source-sha
+        if: github.event_name == 'workflow_dispatch'
+        run: echo "source_sha=$(git rev-parse HEAD)" | tee -a "$GITHUB_OUTPUT"
 
       - name: Install uv
         if: github.event_name == 'workflow_dispatch'
@@ -103,6 +112,7 @@ jobs:
       OCTAVIA_BOT_PRIVATE_KEY: ${{ secrets.OCTAVIA_BOT_PRIVATE_KEY }}
     with:
       pyairbyte-version: ${{ github.event.release.tag_name || github.event.inputs.version_override }}
+      pyairbyte-source-sha: ${{ needs.publish_to_pypi.outputs.source_sha }}
       # Routing (which services this deploys to) lives in deploy_cloud_mcp.yml.
       trigger-type: >-
         ${{ github.event_name == 'workflow_dispatch' && 'pr-prerelease'
