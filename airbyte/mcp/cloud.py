@@ -2302,9 +2302,11 @@ def execute_external_search_query(  # noqa: PLR0913  # Explicit args mirror the 
         bool,
         Field(
             description=(
-                "Return each hit's full record in `entity_data`. Defaults to false: hits "
-                "carry `context` snippets and IDs, and `entity_data` is `{}` unless a "
-                "`streams` entry lists its `fields`."
+                "Return each hit's full record in `entity_data`. Leave false on your first "
+                "search: hits then carry `context` snippets and IDs, and `entity_data` is "
+                "`{}` unless a `streams` entry lists its `fields`. Set true only on a "
+                "follow-up search for hits you picked from those snippets, with `streams` "
+                "set to their stream and a narrow `prompt`."
             ),
             default=False,
         ),
@@ -2331,10 +2333,11 @@ def execute_external_search_query(  # noqa: PLR0913  # Explicit args mirror the 
     `get_search_index_status` to check which streams are indexed and whether their
     backfill is complete.
 
-    Hits come back as snippets by default: each hit has its `context` (up to 512
-    characters unless `max_context_chars` says otherwise), `stream_name`, `namespace`
-    and `entity_id`, with an empty `entity_data`. Pick the hits you need from the
-    snippets, then read their full records: search again with
+    Search in two steps, even when you need a record's full contents. First search
+    with the default `include_entity_data=false`: hits come back as snippets, each with
+    its `context` (up to 512 characters unless `max_context_chars` says otherwise),
+    `stream_name`, `namespace` and `entity_id`, with an empty `entity_data`. Then pick
+    the hits you need from the snippets and read only their full records: search again with
     `include_entity_data=true`, `streams` set to the hit's stream and a narrow `prompt`,
     or read the record from the source with `execute_external_api_query` or
     `execute_external_sql_query`. `entity_id` is a search record key (a JSON array of
