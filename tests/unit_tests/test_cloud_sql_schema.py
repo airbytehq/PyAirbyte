@@ -53,6 +53,7 @@ def test_schema_columns_and_meanings(dialect: str) -> None:
         dump_raw_catalog=lambda: {
             "streams": [
                 {
+                    "selected": True,
                     "stream": {
                         "name": "users",
                         "json_schema": {
@@ -60,8 +61,17 @@ def test_schema_columns_and_meanings(dialect: str) -> None:
                                 "created_at": {"description": "Creation\ntime"}
                             }
                         },
-                    }
-                }
+                    },
+                },
+                {
+                    "selected": False,
+                    "stream": {
+                        "name": "users",
+                        "json_schema": {
+                            "properties": {"created_at": {"description": "Not synced"}}
+                        },
+                    },
+                },
             ]
         },
     )

@@ -44,6 +44,8 @@ def _field_meanings(connector: CloudConnector) -> dict[tuple[str, str, str, str]
         catalog = connection.dump_raw_catalog() or {}
         context = _destination_load_context(connector.as_cloud_destination())
         for entry in catalog.get("streams", []):
+            if not entry.get("selected", True):
+                continue
             stream = entry["stream"]
             table = connection.table_prefix + stream["name"]
             namespace = stream.get("namespace")
