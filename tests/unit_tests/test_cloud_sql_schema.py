@@ -5,6 +5,7 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 import pytest
+from fastmcp.exceptions import ToolError
 
 from airbyte._direct_connectors.models import (
     ExternalApiExecuteResult,
@@ -19,7 +20,7 @@ from airbyte.exceptions import (
     AirbyteMissingResourceError,
 )
 from airbyte.mcp import cloud
-from airbyte.mcp._error_handling import format_user_facing_error
+from airbyte.mcp._error_handling import agent_error_text, format_user_facing_error
 
 
 def _connector(dialect: str = "bigquery") -> MagicMock:
@@ -253,6 +254,9 @@ def test_destination_guidance_survives_cloud_error_formatting(
     text = format_user_facing_error(caught.value)
     assert "Unknown connector" in text
     assert "destination-1, Warehouse, bigquery" in text
+    wrapped = ToolError("Tool failed")
+    wrapped.__cause__ = caught.value
+    assert "destination-1, Warehouse, bigquery" in agent_error_text(wrapped)
 
 
 @pytest.mark.parametrize("failure_stage", ["lookup", "validation", "execution"])

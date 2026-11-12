@@ -209,7 +209,12 @@ def _cloud_problem_text(problem: CloudErrorInfo, error: BaseException) -> str:
             ),
             None,
         )
-    return f"{problem.message} {guidance}".rstrip() if guidance else problem.message
+    text = f"{problem.message} {guidance}".rstrip() if guidance else problem.message
+    destination_guidance = next(
+        (cause.guidance for cause in _chain(error) if isinstance(cause, SqlDestinationInputError)),
+        None,
+    )
+    return f"{text} {destination_guidance}" if destination_guidance else text
 
 
 class SqlDestinationInputError(AirbyteLibInputError):
@@ -219,10 +224,7 @@ class SqlDestinationInputError(AirbyteLibInputError):
 def format_user_facing_error(error: BaseException) -> str:
     """Format local error guidance and Cloud problem details without debug context."""
     if (problem := _cloud_error_info(error)) is not None:
-        text = _cloud_problem_text(problem, error)
-        if isinstance(error, SqlDestinationInputError) and error.guidance:
-            text = f"{text} {error.guidance}"
-        return text
+        return _cloud_problem_text(problem, error)
     if not isinstance(error, AirbyteLibError):
         return str(error)
     text = error.get_message()
