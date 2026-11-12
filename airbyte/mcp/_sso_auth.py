@@ -32,9 +32,9 @@ startup. This module makes those per-login instead, mirroring the Cloud webapp's
 
 This works by subclassing `OIDCProxy` and overriding a handful of its methods and
 private attributes (listed in `_OVERRIDDEN_FASTMCP_METHODS`). Those are FastMCP
-internals with no compatibility promise, checked against fastmcp 3.2.0, so
+internals with no compatibility promise, checked against fastmcp 4.1.7, so
 `check_fastmcp_compatibility()` runs at startup and fails with a clear error if a
-FastMCP upgrade removed one.
+FastMCP upgrade removed one or changed the signature of one this module calls.
 
 Prerequisite on the platform side: the deployment's OIDC client must exist, with the
 same client id, secret, and callback URL, in every SSO realm.
@@ -46,6 +46,7 @@ import asyncio
 import base64
 import binascii
 import functools
+import inspect
 import json
 import logging
 import os
@@ -700,6 +701,10 @@ _REQUIRED_TRANSACTION_FIELDS = (
     "csrf_expires_at",
     "consent_token",
 )
+_CALLED_FASTMCP_METHOD_PARAMS = {
+    "_set_consent_binding_cookie": ("self", "response", "txn_id", "consent_token"),
+    "_verify_consent_binding_cookie": ("self", "request", "txn_id", "expected_token"),
+}
 
 
 def check_fastmcp_compatibility() -> None:
@@ -714,11 +719,17 @@ def check_fastmcp_compatibility() -> None:
         for field in _REQUIRED_TRANSACTION_FIELDS
         if field not in OAuthTransaction.model_fields
     )
+    missing.extend(
+        f"{name}({', '.join(params)})"
+        for name, params in _CALLED_FASTMCP_METHOD_PARAMS.items()
+        if hasattr(OIDCProxy, name)
+        and tuple(inspect.signature(getattr(OIDCProxy, name)).parameters) != params
+    )
     if missing:
         msg = (
-            "The installed fastmcp is missing methods or fields that SSO login depends "
-            f"on: {', '.join(missing)}. Pin fastmcp to a version that has them or update "
-            "airbyte.mcp._sso_auth."
+            "The installed fastmcp lacks methods, fields or method signatures that SSO "
+            f"login depends on: {', '.join(missing)}. Pin fastmcp to a version that "
+            "matches them or update airbyte.mcp._sso_auth."
         )
         raise RuntimeError(msg)
 
@@ -1049,7 +1060,7 @@ class AirbyteSsoOidcProxy(OIDCProxy):
         with realm_context(endpoints):
             upstream_url = self._build_upstream_authorize_url(txn.txn_id, txn.model_dump())
         response = RedirectResponse(url=upstream_url, status_code=HTTPStatus.FOUND)
-        self._set_consent_binding_cookie(request, response, txn.txn_id, consent_token)
+        self._set_consent_binding_cookie(response, txn.txn_id, consent_token)
 
         remaining = [
             token
