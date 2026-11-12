@@ -55,6 +55,17 @@ jobs:
         # Standardize by removing preceding 'v' char:
         run: UV_DYNAMIC_VERSIONING_BYPASS="${VERSION#v}" uv build
 
+      # PEP 751 lock of the runtime dependencies (plus the `datadog` extra) at
+      # this release's commit. The Cloud MCP image installs exactly these
+      # versions, then the wheel with `--no-deps`, so production runs what CI
+      # tested against `uv.lock`. `--locked` fails if `uv.lock` is stale.
+      - name: Export pylock.toml
+        if: steps.not-ready-draft.outputs.skipped != 'true'
+        run: >
+          uv export --locked --format pylock.toml
+          --no-dev --no-emit-project --extra datadog
+          --output-file dist/pylock.toml
+
       - name: Attach assets and finalize draft
         if: steps.not-ready-draft.outputs.skipped != 'true'
         uses: aaronsteers/semantic-pr-release-drafter@8ebe479080d2ecb71377d5d6622ff97ca55b4655 # v2.6.0
@@ -72,3 +83,4 @@ jobs:
           attach-files: |
             dist/*.whl
             dist/*.tar.gz
+            dist/pylock.toml
