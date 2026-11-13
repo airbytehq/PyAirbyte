@@ -255,6 +255,9 @@ set; the interactive path activates once the OIDC client credentials are set.
   including fastmcp and uvicorn logs and Datadog trace-correlation fields.
   Case-insensitive; any other value fails startup. Field details are
   documented in `airbyte.mcp.http_main`.
+- `AIRBYTE_MCP_OPENAI_APPS_CHALLENGE_TOKEN` — optional OpenAI Apps SDK
+  domain-verification token, served as plain text at
+  `/.well-known/openai-apps-challenge` (a 404 when unset).
 - `AIRBYTE_MCP_OIDC_CLIENT_ID`, `AIRBYTE_MCP_OIDC_CLIENT_SECRET` — enable
   interactive OIDC (both required).
 - `AIRBYTE_MCP_OIDC_CONFIG_URL` — OIDC discovery URL (required when the client

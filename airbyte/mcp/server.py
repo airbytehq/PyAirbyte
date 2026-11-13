@@ -66,7 +66,7 @@ from fastmcp_extensions import (
     build_mcp_auth,
     mcp_server,
 )
-from starlette.responses import JSONResponse
+from starlette.responses import JSONResponse, PlainTextResponse
 
 
 if TYPE_CHECKING:
@@ -272,6 +272,11 @@ OIDC_CLIENT_STORAGE_FACTORY_ENV = "AIRBYTE_MCP_OIDC_CLIENT_STORAGE_FACTORY"
 # straight off to the customer's identity provider.
 SSO_OIDC_CONFIG_URL_TEMPLATE_ENV = "AIRBYTE_MCP_SSO_OIDC_CONFIG_URL_TEMPLATE"
 SSO_IDP_HINT_ENV = "AIRBYTE_MCP_SSO_IDP_HINT"
+
+# OpenAI Apps SDK domain verification. The token is public by design: OpenAI
+# fetches it as plain text from the path below to confirm we own the host.
+OPENAI_APPS_CHALLENGE_TOKEN_ENV = "AIRBYTE_MCP_OPENAI_APPS_CHALLENGE_TOKEN"
+OPENAI_APPS_CHALLENGE_PATH = "/.well-known/openai-apps-challenge"
 
 # Realm names that can never be a customer's SSO realm. Airbyte's internal realms
 # all start with `_`, which the identifier pattern already rejects, so only
@@ -616,6 +621,16 @@ validate_airbyte_domains(app)
 async def health_check(request: Request) -> JSONResponse:  # noqa: ARG001, RUF029
     """Health check endpoint for load balancer probes."""
     return JSONResponse({"status": "ok"})
+
+
+@app.custom_route(OPENAI_APPS_CHALLENGE_PATH, methods=["GET"])
+async def openai_apps_challenge(request: Request) -> PlainTextResponse:  # noqa: ARG001, RUF029
+    """Serve the OpenAI Apps SDK domain-verification token when one is configured."""
+    token = os.getenv(OPENAI_APPS_CHALLENGE_TOKEN_ENV, "").strip()
+    if not token:
+        return PlainTextResponse("Not Found", status_code=404)
+
+    return PlainTextResponse(token)
 
 
 def main() -> None:
