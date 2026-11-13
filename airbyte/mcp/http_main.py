@@ -64,6 +64,10 @@ Both settings are required to enable `search_airbyte_knowledge_sources`, which
 belongs to the `guidance` domain and can be selected with `AIRBYTE_MCP_DOMAINS` or
 `AIRBYTE_MCP_DOMAINS_DISABLED`.
 
+- `AIRBYTE_MCP_OPENAI_APPS_CHALLENGE_TOKEN`: optional OpenAI Apps SDK
+  domain-verification token, served as plain text at
+  `/.well-known/openai-apps-challenge`. The path is a 404 when unset.
+
 Interactive OIDC (Keycloak Authorization Code + PKCE), enabled when the client
 credentials are set:
 

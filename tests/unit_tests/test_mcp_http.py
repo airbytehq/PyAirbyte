@@ -25,7 +25,11 @@ from airbyte.constants import (
     MCP_INSIDERS_ENV_VAR,
     MCP_READONLY_MODE_ENV_VAR,
 )
-from airbyte.mcp.server import app
+from airbyte.mcp.server import (
+    OPENAI_APPS_CHALLENGE_PATH,
+    OPENAI_APPS_CHALLENGE_TOKEN_ENV,
+    app,
+)
 from fastmcp_extensions import CapabilityTokenMiddleware
 from fastmcp_extensions import DEFAULT_EXTENSIONS_HEADER
 from fastmcp_extensions.capability_tokens import decode_capability_token
@@ -204,6 +208,41 @@ def _http_tool_names(
             )
         )
     )
+
+
+async def _get(path: str) -> httpx.Response:
+    http_app = _http_app()
+    async with http_app.router.lifespan_context(http_app):
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=http_app),
+            base_url="http://testserver",
+        ) as http_client:
+            return await http_client.get(path)
+
+
+def test_openai_apps_challenge_serves_configured_token(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The challenge path returns exactly the configured token as plain text."""
+    monkeypatch.setenv(OPENAI_APPS_CHALLENGE_TOKEN_ENV, " challenge-token-123 ")
+
+    response = asyncio.run(_get(OPENAI_APPS_CHALLENGE_PATH))
+
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("text/plain")
+    assert response.text == "challenge-token-123"
+
+
+def test_openai_apps_challenge_is_not_found_when_unset(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Without a token the path stays a 404, matching an unregistered route."""
+    monkeypatch.delenv(OPENAI_APPS_CHALLENGE_TOKEN_ENV, raising=False)
+
+    response = asyncio.run(_get(OPENAI_APPS_CHALLENGE_PATH))
+
+    assert response.status_code == 404
+    assert response.text == "Not Found"
 
 
 def test_http_read_only_url_param_hides_non_read_only_tools(
