@@ -978,7 +978,7 @@ def _get_suggested_streams_for_source(
 
 
 @mcp_tool()
-def create_connection(
+def create_connection(  # noqa: PLR0913
     ctx: Context,
     connection_name: Annotated[
         str,
@@ -1025,6 +1025,26 @@ def create_connection(
         ),
         TraceArg.FINGERPRINT,
     ],
+    namespace_definition: Annotated[
+        Literal["source", "destination", "custom_format"] | None,
+        Field(
+            description="Destination namespace strategy: source, destination, or custom_format. "
+            "Independent of table_prefix and the source-side stream_namespace selector. "
+            "Omit to use defaults on create or preserve settings on update.",
+            default=None,
+        ),
+    ] = None,
+    namespace_format: Annotated[
+        str | None,
+        Field(
+            description="Custom destination namespace template, e.g. `${SOURCE_NAMESPACE}` "
+            "or a fixed schema name. Requires explicitly passing "
+            "namespace_definition='custom_format', including on update. "
+            "Not a table prefix or source-side stream_namespace selector.",
+            default=None,
+        ),
+        TraceArg.FINGERPRINT,
+    ] = None,
 ) -> str:
     """Create a connection between a deployed source and destination on Airbyte Cloud.
 
@@ -1032,6 +1052,10 @@ def create_connection(
     `incremental_append`, `full_refresh_overwrite_deduped`, `full_refresh_overwrite`,
     then `full_refresh_append`, subject to cursor and primary-key availability.
     If stream properties cannot be loaded, new streams use API defaults instead.
+
+    `namespace_definition` controls destination namespaces, independently of table prefixes
+    and source stream selectors. `namespace_format` requires explicit `custom_format`,
+    including on update. Omit both for create defaults or to preserve update settings.
 
     New connections use a manual schedule by default. Automatic syncs require a later
     schedule update with `update_connection`.
@@ -1043,6 +1067,7 @@ def create_connection(
     Two connections to the same destination cannot write to the same table (namespace +
     name). Use `table_prefix` (for example `<source>_`) to keep them separate.
     """
+    api_util.validate_namespace_settings(namespace_definition, namespace_format)
     resolved_streams_list: list[str] = resolve_list_of_strings(selected_streams) or []
     workspace: CloudWorkspace = _get_cloud_workspace_for_resource(
         ctx, workspace_id, connector_id=source_id, connector_type=ConnectorType.SOURCE
@@ -1075,6 +1100,8 @@ def create_connection(
         destination=destination_id,
         selected_streams=resolved_streams_list,
         table_prefix=table_prefix,
+        namespace_definition=namespace_definition,
+        namespace_format=namespace_format,
     )
 
     register_guid_created_in_session(deployed_connection.connection_id)
@@ -4430,9 +4457,14 @@ def _update_cloud_connection_impl(  # noqa: PLR0913
     apply_discover_request_id: str | None,
     workspace_id: str | None,
     allow_unsafe: bool,
+    namespace_definition: Literal["source", "destination", "custom_format"] | None = None,
+    namespace_format: str | None = None,
 ) -> str:
     """Validate and apply settings in the order that protects catalog updates."""
+    api_util.validate_namespace_settings(namespace_definition, namespace_format)
     _validate_update_connection_args(
+        namespace_definition=namespace_definition,
+        namespace_format=namespace_format,
         enabled=enabled,
         cron_expression=cron_expression,
         interval_hours=interval_hours,
@@ -4473,6 +4505,12 @@ def _update_cloud_connection_impl(  # noqa: PLR0913
         changes_made.append(status_summary)
     if schedule_summary is not None:
         changes_made.append(schedule_summary)
+
+    if namespace_definition is not None or namespace_format is not None:
+        connection.set_namespace(
+            namespace_definition=namespace_definition, namespace_format=namespace_format
+        )
+        changes_made.append("destination namespace updated")
 
     changes_summary = ", ".join(changes_made)
     return (
@@ -4582,8 +4620,32 @@ def update_connection(  # noqa: PLR0913
         ),
         TraceArg.OMIT,
     ],
+    namespace_definition: Annotated[
+        Literal["source", "destination", "custom_format"] | None,
+        Field(
+            description="Destination namespace strategy: source, destination, or custom_format. "
+            "Independent of table_prefix and the source-side stream_namespace selector. "
+            "Omit to use defaults on create or preserve settings on update.",
+            default=None,
+        ),
+    ] = None,
+    namespace_format: Annotated[
+        str | None,
+        Field(
+            description="Custom destination namespace template, e.g. `${SOURCE_NAMESPACE}` "
+            "or a fixed schema name. Requires explicitly passing "
+            "namespace_definition='custom_format', including on update. "
+            "Not a table prefix or source-side stream_namespace selector.",
+            default=None,
+        ),
+        TraceArg.FINGERPRINT,
+    ] = None,
 ) -> str:
     """Update a connection's settings and stream configurations on Airbyte Cloud.
+
+    `namespace_definition` controls destination namespaces, independently of table prefixes
+    and source stream selectors. `namespace_format` requires explicit `custom_format`,
+    including on update. Omit both for create defaults or to preserve update settings.
 
     This tool can update the connection status, schedule, and per-stream sync configuration.
     `interval_hours`, `cron_expression`, and `manual_schedule=True` are mutually exclusive.
@@ -4602,6 +4664,8 @@ def update_connection(  # noqa: PLR0913
         apply_discover_request_id=apply_discover_request_id,
         workspace_id=workspace_id,
         allow_unsafe=False,
+        namespace_definition=namespace_definition,
+        namespace_format=namespace_format,
     )
 
 
@@ -4706,8 +4770,32 @@ def update_connection_unsafe(  # noqa: PLR0913
         ),
         TraceArg.OMIT,
     ],
+    namespace_definition: Annotated[
+        Literal["source", "destination", "custom_format"] | None,
+        Field(
+            description="Destination namespace strategy: source, destination, or custom_format. "
+            "Independent of table_prefix and the source-side stream_namespace selector. "
+            "Omit to use defaults on create or preserve settings on update.",
+            default=None,
+        ),
+    ] = None,
+    namespace_format: Annotated[
+        str | None,
+        Field(
+            description="Custom destination namespace template, e.g. `${SOURCE_NAMESPACE}` "
+            "or a fixed schema name. Requires explicitly passing "
+            "namespace_definition='custom_format', including on update. "
+            "Not a table prefix or source-side stream_namespace selector.",
+            default=None,
+        ),
+        TraceArg.FINGERPRINT,
+    ] = None,
 ) -> str:
     """Update connection settings and override stream configurations despite saved state.
+
+    `namespace_definition` controls destination namespaces, independently of table prefixes
+    and source stream selectors. `namespace_format` requires explicit `custom_format`,
+    including on update. Omit both for create defaults or to preserve update settings.
 
     Unsafe changes can make the destination's data inconsistent. By default, the platform
     refreshes or resets every changed stream.
@@ -4724,6 +4812,8 @@ def update_connection_unsafe(  # noqa: PLR0913
         apply_discover_request_id=apply_discover_request_id,
         workspace_id=workspace_id,
         allow_unsafe=True,
+        namespace_definition=namespace_definition,
+        namespace_format=namespace_format,
     )
 
 

@@ -1436,6 +1436,29 @@ class CloudConnection:  # noqa: PLR0904  # Too many public methods
         self._connection_info = CloudConnectionInfo.from_api_response(updated_response)
         return self
 
+    def set_namespace(
+        self,
+        *,
+        namespace_definition: Literal["source", "destination", "custom_format"] | None = None,
+        namespace_format: str | None = None,
+    ) -> CloudConnection:
+        """Set destination namespaces independently of table prefixes or stream selectors.
+
+        Omitted values preserve settings. A template requires explicitly passing
+        `namespace_definition='custom_format'`.
+        """
+        updated_response = api_util.patch_connection(
+            connection_id=self.connection_id,
+            api_root=self.workspace.api_root,
+            client_id=self.workspace.client_id,
+            client_secret=self.workspace.client_secret,
+            bearer_token=self.workspace.bearer_token,
+            namespace_definition=namespace_definition,
+            namespace_format=namespace_format,
+        )
+        self._connection_info = CloudConnectionInfo.from_api_response(updated_response)
+        return self
+
     def set_table_prefix(self, prefix: str) -> CloudConnection:
         """Set the table prefix for the connection.
 

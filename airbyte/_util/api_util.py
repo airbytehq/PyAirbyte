@@ -2150,6 +2150,27 @@ def build_connection_schedule(
     )
 
 
+def validate_namespace_settings(
+    namespace_definition: Literal["source", "destination", "custom_format"] | None,
+    namespace_format: str | None,
+) -> None:
+    """Validate destination namespace settings before any API writes."""
+    if namespace_definition not in {None, "source", "destination", "custom_format"}:
+        raise AirbyteLibInputError(
+            message="`namespace_definition` must be source, destination, or custom_format.",
+        )
+    if namespace_format is not None and namespace_definition != "custom_format":
+        raise AirbyteLibInputError(
+            message="`namespace_format` requires `namespace_definition='custom_format'`.",
+            guidance="Pass both arguments together to set a custom destination namespace.",
+        )
+    if namespace_format is not None and not namespace_format.strip():
+        raise AirbyteLibInputError(
+            message="`namespace_format` must not be empty.",
+            guidance="Provide a template such as `${SOURCE_NAMESPACE}` or a fixed schema name.",
+        )
+
+
 def create_connection(  # noqa: PLR0913  # Too many arguments
     name: str,
     *,
@@ -2162,7 +2183,10 @@ def create_connection(  # noqa: PLR0913  # Too many arguments
     workspace_id: str | None = None,
     prefix: str,
     selected_stream_names: list[str],
+    namespace_definition: Literal["source", "destination", "custom_format"] | None = None,
+    namespace_format: str | None = None,
 ) -> models.ConnectionResponse:
+    validate_namespace_settings(namespace_definition, namespace_format)
     _ = workspace_id  # Not used (yet)
     airbyte_instance = get_airbyte_server_instance(
         client_id=client_id,
@@ -2187,6 +2211,12 @@ def create_connection(  # noqa: PLR0913  # Too many arguments
                 destination_id=destination_id,
                 configurations=stream_configurations_obj,
                 prefix=prefix,
+                namespace_definition=(
+                    models.NamespaceDefinitionEnum(namespace_definition)
+                    if namespace_definition is not None
+                    else None
+                ),
+                namespace_format=namespace_format,
             ),
         )
     except SDKError as e:
@@ -2354,6 +2384,8 @@ def patch_connection(  # noqa: PLR0913  # Too many arguments
     schedule: models.AirbyteAPIConnectionSchedule | None = None,
     prefix: str | None = None,
     status: str | models.ConnectionStatusEnum | None = None,
+    namespace_definition: Literal["source", "destination", "custom_format"] | None = None,
+    namespace_format: str | None = None,
 ) -> models.ConnectionResponse:
     """Update/patch a connection configuration.
 
@@ -2370,11 +2402,14 @@ def patch_connection(  # noqa: PLR0913  # Too many arguments
         configurations: Optional new stream configurations
         schedule: Optional new sync schedule
         prefix: Optional new table prefix
+        namespace_definition: Destination namespace strategy; omitted preserves settings.
+        namespace_format: Custom destination template; requires explicit `custom_format`.
         status: Optional new connection status
 
     Returns:
         Updated ConnectionResponse object
     """
+    validate_namespace_settings(namespace_definition, namespace_format)
     airbyte_instance = get_airbyte_server_instance(
         client_id=client_id,
         client_secret=client_secret,
@@ -2405,6 +2440,12 @@ def patch_connection(  # noqa: PLR0913  # Too many arguments
                     schedule=schedule,
                     prefix=prefix,
                     status=status_value,
+                    namespace_definition=(
+                        models.NamespaceDefinitionEnumNoDefault(namespace_definition)
+                        if namespace_definition is not None
+                        else None
+                    ),
+                    namespace_format=namespace_format,
                 ),
             ),
         )
