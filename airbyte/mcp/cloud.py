@@ -1026,20 +1026,24 @@ def create_connection(  # noqa: PLR0913
         TraceArg.FINGERPRINT,
     ],
     namespace_definition: Annotated[
-        Literal["source", "destination", "custom_format"] | None,
+        Literal["source", "destination", "custom"] | None,
         Field(
-            description="Destination namespace strategy: source, destination, or custom_format. "
+            description="Destination namespace strategy: source, destination, or custom. "
+            "Generally the schema name; dataset in BigQuery, database in MySQL/ClickHouse, "
+            "or path prefix in S3. "
             "Independent of table_prefix and the source-side stream_namespace selector. "
             "Omit to use defaults on create or preserve settings on update.",
             default=None,
         ),
     ] = None,
-    namespace_format: Annotated[
+    custom_namespace_pattern: Annotated[
         str | None,
         Field(
-            description="Custom destination namespace template, e.g. `${SOURCE_NAMESPACE}` "
-            "or a fixed schema name. Requires explicitly passing "
-            "namespace_definition='custom_format', including on update. "
+            description="Custom destination namespace pattern. Available interpolation variables "
+            "include: `${SOURCE_NAMESPACE}` (the namespace the source reports for each "
+            "stream, if any). Combine with literal text, e.g. `${SOURCE_NAMESPACE}_raw`, "
+            "or use a fixed schema name. Requires explicitly passing "
+            "namespace_definition='custom', including on update. "
             "Not a table prefix or source-side stream_namespace selector.",
             default=None,
         ),
@@ -1053,9 +1057,11 @@ def create_connection(  # noqa: PLR0913
     then `full_refresh_append`, subject to cursor and primary-key availability.
     If stream properties cannot be loaded, new streams use API defaults instead.
 
-    `namespace_definition` controls destination namespaces, independently of table prefixes
-    and source stream selectors. `namespace_format` requires explicit `custom_format`,
-    including on update. Omit both for create defaults or to preserve update settings.
+    `namespace_definition` controls the destination namespace: generally a schema name,
+    dataset in BigQuery, database in MySQL/ClickHouse, or path prefix in S3. It is independent
+    of `table_prefix` and the source-side `stream_namespace` selector.
+    `custom_namespace_pattern` requires explicit `custom`, including on update.
+    Omit both for create defaults or to preserve update settings.
 
     New connections use a manual schedule by default. Automatic syncs require a later
     schedule update with `update_connection`.
@@ -1067,7 +1073,7 @@ def create_connection(  # noqa: PLR0913
     Two connections to the same destination cannot write to the same table (namespace +
     name). Use `table_prefix` (for example `<source>_`) to keep them separate.
     """
-    api_util.validate_namespace_settings(namespace_definition, namespace_format)
+    api_util.validate_namespace_settings(namespace_definition, custom_namespace_pattern)
     resolved_streams_list: list[str] = resolve_list_of_strings(selected_streams) or []
     workspace: CloudWorkspace = _get_cloud_workspace_for_resource(
         ctx, workspace_id, connector_id=source_id, connector_type=ConnectorType.SOURCE
@@ -1101,7 +1107,7 @@ def create_connection(  # noqa: PLR0913
         selected_streams=resolved_streams_list,
         table_prefix=table_prefix,
         namespace_definition=namespace_definition,
-        namespace_format=namespace_format,
+        custom_namespace_pattern=custom_namespace_pattern,
     )
 
     register_guid_created_in_session(deployed_connection.connection_id)
@@ -4457,14 +4463,14 @@ def _update_cloud_connection_impl(  # noqa: PLR0913
     apply_discover_request_id: str | None,
     workspace_id: str | None,
     allow_unsafe: bool,
-    namespace_definition: Literal["source", "destination", "custom_format"] | None = None,
-    namespace_format: str | None = None,
+    namespace_definition: Literal["source", "destination", "custom"] | None = None,
+    custom_namespace_pattern: str | None = None,
 ) -> str:
     """Validate and apply settings in the order that protects catalog updates."""
-    api_util.validate_namespace_settings(namespace_definition, namespace_format)
+    api_util.validate_namespace_settings(namespace_definition, custom_namespace_pattern)
     _validate_update_connection_args(
         namespace_definition=namespace_definition,
-        namespace_format=namespace_format,
+        custom_namespace_pattern=custom_namespace_pattern,
         enabled=enabled,
         cron_expression=cron_expression,
         interval_hours=interval_hours,
@@ -4506,9 +4512,10 @@ def _update_cloud_connection_impl(  # noqa: PLR0913
     if schedule_summary is not None:
         changes_made.append(schedule_summary)
 
-    if namespace_definition is not None or namespace_format is not None:
+    if namespace_definition is not None or custom_namespace_pattern is not None:
         connection.set_namespace(
-            namespace_definition=namespace_definition, namespace_format=namespace_format
+            namespace_definition=namespace_definition,
+            custom_namespace_pattern=custom_namespace_pattern,
         )
         changes_made.append("destination namespace updated")
 
@@ -4621,20 +4628,24 @@ def update_connection(  # noqa: PLR0913
         TraceArg.OMIT,
     ],
     namespace_definition: Annotated[
-        Literal["source", "destination", "custom_format"] | None,
+        Literal["source", "destination", "custom"] | None,
         Field(
-            description="Destination namespace strategy: source, destination, or custom_format. "
+            description="Destination namespace strategy: source, destination, or custom. "
+            "Generally the schema name; dataset in BigQuery, database in MySQL/ClickHouse, "
+            "or path prefix in S3. "
             "Independent of table_prefix and the source-side stream_namespace selector. "
             "Omit to use defaults on create or preserve settings on update.",
             default=None,
         ),
     ] = None,
-    namespace_format: Annotated[
+    custom_namespace_pattern: Annotated[
         str | None,
         Field(
-            description="Custom destination namespace template, e.g. `${SOURCE_NAMESPACE}` "
-            "or a fixed schema name. Requires explicitly passing "
-            "namespace_definition='custom_format', including on update. "
+            description="Custom destination namespace pattern. Available interpolation variables "
+            "include: `${SOURCE_NAMESPACE}` (the namespace the source reports for each "
+            "stream, if any). Combine with literal text, e.g. `${SOURCE_NAMESPACE}_raw`, "
+            "or use a fixed schema name. Requires explicitly passing "
+            "namespace_definition='custom', including on update. "
             "Not a table prefix or source-side stream_namespace selector.",
             default=None,
         ),
@@ -4643,9 +4654,11 @@ def update_connection(  # noqa: PLR0913
 ) -> str:
     """Update a connection's settings and stream configurations on Airbyte Cloud.
 
-    `namespace_definition` controls destination namespaces, independently of table prefixes
-    and source stream selectors. `namespace_format` requires explicit `custom_format`,
-    including on update. Omit both for create defaults or to preserve update settings.
+    `namespace_definition` controls the destination namespace: generally a schema name,
+    dataset in BigQuery, database in MySQL/ClickHouse, or path prefix in S3. It is independent
+    of `table_prefix` and the source-side `stream_namespace` selector.
+    `custom_namespace_pattern` requires explicit `custom`, including on update.
+    Omit both for create defaults or to preserve update settings.
 
     This tool can update the connection status, schedule, and per-stream sync configuration.
     `interval_hours`, `cron_expression`, and `manual_schedule=True` are mutually exclusive.
@@ -4665,7 +4678,7 @@ def update_connection(  # noqa: PLR0913
         workspace_id=workspace_id,
         allow_unsafe=False,
         namespace_definition=namespace_definition,
-        namespace_format=namespace_format,
+        custom_namespace_pattern=custom_namespace_pattern,
     )
 
 
@@ -4771,20 +4784,24 @@ def update_connection_unsafe(  # noqa: PLR0913
         TraceArg.OMIT,
     ],
     namespace_definition: Annotated[
-        Literal["source", "destination", "custom_format"] | None,
+        Literal["source", "destination", "custom"] | None,
         Field(
-            description="Destination namespace strategy: source, destination, or custom_format. "
+            description="Destination namespace strategy: source, destination, or custom. "
+            "Generally the schema name; dataset in BigQuery, database in MySQL/ClickHouse, "
+            "or path prefix in S3. "
             "Independent of table_prefix and the source-side stream_namespace selector. "
             "Omit to use defaults on create or preserve settings on update.",
             default=None,
         ),
     ] = None,
-    namespace_format: Annotated[
+    custom_namespace_pattern: Annotated[
         str | None,
         Field(
-            description="Custom destination namespace template, e.g. `${SOURCE_NAMESPACE}` "
-            "or a fixed schema name. Requires explicitly passing "
-            "namespace_definition='custom_format', including on update. "
+            description="Custom destination namespace pattern. Available interpolation variables "
+            "include: `${SOURCE_NAMESPACE}` (the namespace the source reports for each "
+            "stream, if any). Combine with literal text, e.g. `${SOURCE_NAMESPACE}_raw`, "
+            "or use a fixed schema name. Requires explicitly passing "
+            "namespace_definition='custom', including on update. "
             "Not a table prefix or source-side stream_namespace selector.",
             default=None,
         ),
@@ -4793,9 +4810,11 @@ def update_connection_unsafe(  # noqa: PLR0913
 ) -> str:
     """Update connection settings and override stream configurations despite saved state.
 
-    `namespace_definition` controls destination namespaces, independently of table prefixes
-    and source stream selectors. `namespace_format` requires explicit `custom_format`,
-    including on update. Omit both for create defaults or to preserve update settings.
+    `namespace_definition` controls the destination namespace: generally a schema name,
+    dataset in BigQuery, database in MySQL/ClickHouse, or path prefix in S3. It is independent
+    of `table_prefix` and the source-side `stream_namespace` selector.
+    `custom_namespace_pattern` requires explicit `custom`, including on update.
+    Omit both for create defaults or to preserve update settings.
 
     Unsafe changes can make the destination's data inconsistent. By default, the platform
     refreshes or resets every changed stream.
@@ -4813,7 +4832,7 @@ def update_connection_unsafe(  # noqa: PLR0913
         workspace_id=workspace_id,
         allow_unsafe=True,
         namespace_definition=namespace_definition,
-        namespace_format=namespace_format,
+        custom_namespace_pattern=custom_namespace_pattern,
     )
 
 

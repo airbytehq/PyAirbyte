@@ -1072,12 +1072,19 @@ class CloudWorkspace:
         selected_streams: list[str],
         destination: cloud_connectors.CloudDestination | str,
         table_prefix: str | None = None,
-        namespace_definition: Literal["source", "destination", "custom_format"] | None = None,
-        namespace_format: str | None = None,
+        namespace_definition: Literal["source", "destination", "custom"] | None = None,
+        custom_namespace_pattern: str | None = None,
     ) -> CloudConnection:
         """Create a new connection between an already deployed source and destination.
 
         Returns the newly deployed connection object.
+
+        A destination namespace is generally a schema name: a dataset in BigQuery,
+        database in MySQL/ClickHouse, or path prefix in S3. Available interpolation
+        variables include `${SOURCE_NAMESPACE}` (the namespace the source reports for
+        each stream, if any). Combine it with literal text, e.g. `${SOURCE_NAMESPACE}_raw`,
+        or use a fixed schema name. This is independent of table prefixes and source-side
+        `stream_namespace` selectors.
 
         Args:
             connection_name: The name of the connection.
@@ -1088,7 +1095,7 @@ class CloudWorkspace:
                 connections to the same destination from writing to the same table
                 (namespace + name).
             namespace_definition: Destination namespace strategy; omitted uses API defaults.
-            namespace_format: Custom destination template; requires explicit `custom_format`.
+            custom_namespace_pattern: Custom destination template; requires explicit `custom`.
             selected_streams: The selected stream names to sync within the connection.
         """
         if not selected_streams:
@@ -1110,7 +1117,7 @@ class CloudWorkspace:
             selected_stream_names=selected_streams,
             prefix=table_prefix or "",
             namespace_definition=namespace_definition,
-            namespace_format=namespace_format,
+            custom_namespace_pattern=custom_namespace_pattern,
             client_id=self.client_id,
             client_secret=self.client_secret,
             bearer_token=self.bearer_token,

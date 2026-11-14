@@ -74,14 +74,15 @@ def backend(monkeypatch: pytest.MonkeyPatch) -> MagicMock:
         (None, None),
         ("source", None),
         ("destination", None),
-        ("custom_format", "${SOURCE_NAMESPACE}"),
-        ("custom_format", "fixed_schema"),
+        ("custom", "${SOURCE_NAMESPACE}"),
+        ("custom", "fixed_schema"),
+        ("custom", "${SOURCE_NAMESPACE}_raw"),
     ],
 )
 def test_namespace_payload(
     backend: MagicMock,
     operation: str,
-    definition: Literal["source", "destination", "custom_format"] | None,
+    definition: Literal["source", "destination", "custom"] | None,
     template: str | None,
 ) -> None:
     """Serialize only requested namespace settings, independently of table prefixes."""
@@ -95,7 +96,7 @@ def test_namespace_payload(
             selected_streams=["users"],
             table_prefix="prefix_",
             namespace_definition=definition,
-            namespace_format=template,
+            custom_namespace_pattern=template,
         )
         request = backend.create_connection.call_args.args[0]
         payload = json.loads(
@@ -119,7 +120,7 @@ def test_namespace_payload(
             apply_discover_request_id=None,
             workspace_id=None,
             namespace_definition=definition,
-            namespace_format=template,
+            custom_namespace_pattern=template,
         )
         request = backend.patch_connection.call_args.args[0].connection_patch_request
         payload = json.loads(utils.marshal_json(request, models.ConnectionPatchRequest))
@@ -127,7 +128,9 @@ def test_namespace_payload(
     if definition is None:
         assert "namespaceDefinition" not in payload
     else:
-        assert payload["namespaceDefinition"] == definition
+        assert payload["namespaceDefinition"] == (
+            "custom_format" if definition == "custom" else definition
+        )
     if template is None:
         assert "namespaceFormat" not in payload
     else:
@@ -141,18 +144,18 @@ def test_namespace_payload(
         (None, "schema"),
         ("source", "schema"),
         ("destination", "schema"),
-        ("custom_format", ""),
-        ("custom_format", "  "),
+        ("custom", ""),
+        ("custom", "  "),
     ],
 )
 def test_invalid_namespace_settings_do_not_write(
     backend: MagicMock,
     operation: str,
-    definition: Literal["source", "destination", "custom_format"] | None,
+    definition: Literal["source", "destination", "custom"] | None,
     template: str,
 ) -> None:
     """Reject incompatible and empty templates before any connection writes."""
-    with pytest.raises(AirbyteLibInputError, match="namespace_format"):
+    with pytest.raises(AirbyteLibInputError, match="custom_namespace_pattern"):
         if operation == "create":
             cloud_mcp.create_connection(
                 ctx=None,
@@ -163,7 +166,7 @@ def test_invalid_namespace_settings_do_not_write(
                 selected_streams=["users"],
                 table_prefix=None,
                 namespace_definition=definition,
-                namespace_format=template,
+                custom_namespace_pattern=template,
             )
         else:
             tool = (
@@ -182,7 +185,7 @@ def test_invalid_namespace_settings_do_not_write(
                 apply_discover_request_id=None,
                 workspace_id=None,
                 namespace_definition=definition,
-                namespace_format=template,
+                custom_namespace_pattern=template,
             )
     backend.create_connection.assert_not_called()
     backend.patch_connection.assert_not_called()

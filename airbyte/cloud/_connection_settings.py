@@ -23,7 +23,7 @@ def _validate_update_connection_args(
     override_stream_configs: list[StreamConfigOverride] | None,
     apply_discover_request_id: str | None,
     namespace_definition: str | None = None,
-    namespace_format: str | None = None,
+    custom_namespace_pattern: str | None = None,
 ) -> None:
     """Validate the connection settings before any API writes."""
     if not any(
@@ -35,14 +35,15 @@ def _validate_update_connection_args(
             bool(override_stream_configs),
             apply_discover_request_id is not None,
             namespace_definition is not None,
-            namespace_format is not None,
+            custom_namespace_pattern is not None,
         )
     ):
         raise AirbyteLibInputError(
             message=(
                 "At least one setting must be provided: 'enabled', 'interval_hours', "
                 "'cron_expression', 'manual_schedule', 'override_stream_configs', "
-                "'apply_discover_request_id', 'namespace_definition', or 'namespace_format'."
+                "'apply_discover_request_id', 'namespace_definition', or "
+                "'custom_namespace_pattern'."
             ),
         )
 

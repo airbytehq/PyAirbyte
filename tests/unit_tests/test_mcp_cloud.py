@@ -1700,7 +1700,7 @@ def test_create_connection_on_cloud_uses_explicit_streams(
             "selected_streams": ["users", "orders"],
             "table_prefix": None,
             "namespace_definition": None,
-            "namespace_format": None,
+            "custom_namespace_pattern": None,
         }
     ]
     assert "suggested streams" not in result
