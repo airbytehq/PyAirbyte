@@ -1057,11 +1057,10 @@ def create_connection(  # noqa: PLR0913
     then `full_refresh_append`, subject to cursor and primary-key availability.
     If stream properties cannot be loaded, new streams use API defaults instead.
 
-    `namespace_definition` controls the destination namespace: generally a schema name,
-    dataset in BigQuery, database in MySQL/ClickHouse, or path prefix in S3. It is independent
-    of `table_prefix` and the source-side `stream_namespace` selector.
-    `custom_namespace_pattern` requires explicit `custom`, including on update.
-    Omit both for create defaults or to preserve update settings.
+    To set the destination namespace (usually the schema name), use `namespace_definition`
+    (`source`, `destination`, or `custom`). With `custom`, use `custom_namespace_pattern`
+    for a pattern supporting interpolation variables including `${SOURCE_NAMESPACE}`.
+    Omit both to keep defaults on create or existing settings on update.
 
     New connections use a manual schedule by default. Automatic syncs require a later
     schedule update with `update_connection`.
@@ -4654,11 +4653,10 @@ def update_connection(  # noqa: PLR0913
 ) -> str:
     """Update a connection's settings and stream configurations on Airbyte Cloud.
 
-    `namespace_definition` controls the destination namespace: generally a schema name,
-    dataset in BigQuery, database in MySQL/ClickHouse, or path prefix in S3. It is independent
-    of `table_prefix` and the source-side `stream_namespace` selector.
-    `custom_namespace_pattern` requires explicit `custom`, including on update.
-    Omit both for create defaults or to preserve update settings.
+    To set the destination namespace (usually the schema name), use `namespace_definition`
+    (`source`, `destination`, or `custom`). With `custom`, use `custom_namespace_pattern`
+    for a pattern supporting interpolation variables including `${SOURCE_NAMESPACE}`.
+    Omit both to keep defaults on create or existing settings on update.
 
     This tool can update the connection status, schedule, and per-stream sync configuration.
     `interval_hours`, `cron_expression`, and `manual_schedule=True` are mutually exclusive.
@@ -4810,11 +4808,10 @@ def update_connection_unsafe(  # noqa: PLR0913
 ) -> str:
     """Update connection settings and override stream configurations despite saved state.
 
-    `namespace_definition` controls the destination namespace: generally a schema name,
-    dataset in BigQuery, database in MySQL/ClickHouse, or path prefix in S3. It is independent
-    of `table_prefix` and the source-side `stream_namespace` selector.
-    `custom_namespace_pattern` requires explicit `custom`, including on update.
-    Omit both for create defaults or to preserve update settings.
+    To set the destination namespace (usually the schema name), use `namespace_definition`
+    (`source`, `destination`, or `custom`). With `custom`, use `custom_namespace_pattern`
+    for a pattern supporting interpolation variables including `${SOURCE_NAMESPACE}`.
+    Omit both to keep defaults on create or existing settings on update.
 
     Unsafe changes can make the destination's data inconsistent. By default, the platform
     refreshes or resets every changed stream.
