@@ -14,7 +14,9 @@
   },
   "create_connection": {
     "connection_name": "fingerprint",
+    "custom_namespace_pattern": "fingerprint",
     "destination_id": "hash",
+    "namespace_provider": "value allowed=[\"custom\",\"destination\",\"source\"]",
     "selected_streams": "fingerprint list",
     "source_id": "hash",
     "table_prefix": "fingerprint",
@@ -422,9 +424,11 @@
     "apply_discover_request_id": "hash",
     "connection_id": "hash",
     "cron_expression": "fingerprint",
+    "custom_namespace_pattern": "fingerprint",
     "enabled": "value allowed=[false,true]",
     "interval_hours": "hash",
     "manual_schedule": "value allowed=[false,true]",
+    "namespace_provider": "value allowed=[\"custom\",\"destination\",\"source\"]",
     "override_stream_configs": "fingerprint list",
     "workspace_id": "omit"
   },
@@ -432,9 +436,11 @@
     "apply_discover_request_id": "hash",
     "connection_id": "hash",
     "cron_expression": "fingerprint",
+    "custom_namespace_pattern": "fingerprint",
     "enabled": "value allowed=[false,true]",
     "interval_hours": "hash",
     "manual_schedule": "value allowed=[false,true]",
+    "namespace_provider": "value allowed=[\"custom\",\"destination\",\"source\"]",
     "override_stream_configs": "fingerprint list",
     "workspace_id": "omit"
   },
