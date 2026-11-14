@@ -4491,6 +4491,11 @@ def _update_cloud_connection_impl(  # noqa: PLR0913
     )
     connection = workspace.get_connection(connection_id=connection_id)
 
+    changes_made: list[str] = []
+    if enabled is False:
+        connection.set_enabled(enabled=False)
+        changes_made.append("status set to 'disabled'")
+
     stream_config_result = _apply_stream_config_overrides(
         ctx,
         connection,
@@ -4499,12 +4504,19 @@ def _update_cloud_connection_impl(  # noqa: PLR0913
         apply_discover_request_id=apply_discover_request_id,
     )
 
-    if enabled is not None:
-        connection.set_enabled(enabled=enabled)
-        status_str = "enabled" if enabled else "disabled"
-        status_summary = f"status set to '{status_str}'"
-    else:
-        status_summary = None
+    if stream_config_result:
+        changes_made.extend(stream_config_result.summary_lines())
+
+    if namespace_definition is not None or custom_namespace_pattern is not None:
+        connection.set_namespace(
+            namespace_definition=namespace_definition,
+            custom_namespace_pattern=custom_namespace_pattern,
+        )
+        changes_made.append("destination namespace updated")
+
+    if enabled is True:
+        connection.set_enabled(enabled=True)
+        changes_made.append("status set to 'enabled'")
 
     schedule_summary = _set_connection_schedule(
         connection,
@@ -4513,18 +4525,8 @@ def _update_cloud_connection_impl(  # noqa: PLR0913
         manual_schedule=manual_schedule,
     )
 
-    changes_made = stream_config_result.summary_lines() if stream_config_result else []
-    if status_summary is not None:
-        changes_made.append(status_summary)
     if schedule_summary is not None:
         changes_made.append(schedule_summary)
-
-    if namespace_definition is not None or custom_namespace_pattern is not None:
-        connection.set_namespace(
-            namespace_definition=namespace_definition,
-            custom_namespace_pattern=custom_namespace_pattern,
-        )
-        changes_made.append("destination namespace updated")
 
     changes_summary = ", ".join(changes_made)
     return (

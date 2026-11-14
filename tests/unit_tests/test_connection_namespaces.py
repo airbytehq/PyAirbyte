@@ -7,7 +7,7 @@ import asyncio
 import json
 from types import SimpleNamespace
 from typing import Literal
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, call
 
 import pytest
 from airbyte_api import models, utils
@@ -17,6 +17,72 @@ from airbyte._util import api_util
 from airbyte.cloud.workspaces import CloudWorkspace
 from airbyte.exceptions import AirbyteLibInputError
 from airbyte.mcp import cloud as cloud_mcp
+
+
+@pytest.mark.parametrize("unsafe", [False, True])
+@pytest.mark.parametrize(
+    ("enabled", "interval_hours", "expected_calls"),
+    [
+        (None, 24, ["set_namespace", "set_schedule"]),
+        (True, None, ["set_namespace", "set_enabled"]),
+        (True, 24, ["set_namespace", "set_enabled", "set_schedule"]),
+        (False, 24, ["set_enabled", "set_namespace", "set_schedule"]),
+    ],
+)
+def test_namespace_update_write_order(
+    monkeypatch: pytest.MonkeyPatch,
+    unsafe: bool,
+    enabled: bool | None,
+    interval_hours: int | None,
+    expected_calls: list[str],
+) -> None:
+    """Disable first, but set the namespace before anything that can start a sync."""
+    connection = MagicMock(connection_url="https://example.com/connection")
+    workspace = MagicMock()
+    workspace.get_connection.return_value = connection
+    monkeypatch.setattr(
+        cloud_mcp,
+        "_get_cloud_workspace_for_resource",
+        lambda *_args, **_kwargs: workspace,
+    )
+    monkeypatch.setattr(cloud_mcp, "check_guid_created_in_session", lambda *_args: None)
+    tool = cloud_mcp.update_connection_unsafe if unsafe else cloud_mcp.update_connection
+
+    result = tool(
+        ctx=None,
+        connection_id="12345678-1234-1234-1234-1234567890ab",
+        enabled=enabled,
+        cron_expression=None,
+        interval_hours=interval_hours,
+        manual_schedule=None,
+        override_stream_configs=None,
+        apply_discover_request_id=None,
+        workspace_id=None,
+        namespace_definition="custom",
+        custom_namespace_pattern="new_schema",
+    )
+
+    assert [entry[0] for entry in connection.mock_calls] == expected_calls
+    assert (
+        call.set_namespace(
+            namespace_definition="custom", custom_namespace_pattern="new_schema"
+        )
+        in connection.mock_calls
+    )
+    assert "destination namespace updated" in result
+    if enabled is not None:
+        assert call.set_enabled(enabled=enabled) in connection.mock_calls
+        status = "enabled" if enabled else "disabled"
+        status_summary = f"status set to '{status}'"
+        assert status_summary in result
+        assert (
+            result.index(status_summary) < result.index("destination namespace updated")
+        ) == (enabled is False)
+    if interval_hours is not None:
+        assert call.set_schedule(interval_hours=interval_hours) in connection.mock_calls
+        assert result.index("destination namespace updated") < result.index(
+            "schedule set to"
+        )
 
 
 def test_namespace_tool_schemas() -> None:
