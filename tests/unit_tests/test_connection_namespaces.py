@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 from types import SimpleNamespace
 from typing import Literal
@@ -10,11 +11,50 @@ from unittest.mock import MagicMock
 
 import pytest
 from airbyte_api import models, utils
+from fastmcp import Client, FastMCP
 
 from airbyte._util import api_util
 from airbyte.cloud.workspaces import CloudWorkspace
 from airbyte.exceptions import AirbyteLibInputError
 from airbyte.mcp import cloud as cloud_mcp
+
+
+def test_namespace_tool_schemas() -> None:
+    """Shared argument aliases retain schemas, descriptions, and optional defaults."""
+    server = FastMCP("namespace-schema-tests")
+    cloud_mcp.register_cloud_tools(server)
+
+    async def inspect_tools() -> None:
+        async with Client(server) as client:
+            tools = {tool.name: tool for tool in await client.list_tools()}
+        for name in (
+            "create_connection",
+            "update_connection",
+            "update_connection_unsafe",
+        ):
+            tool = tools[name]
+            properties = tool.input_schema["properties"]
+            definition = properties["namespace_definition"]
+            pattern = properties["custom_namespace_pattern"]
+            choices = next(
+                option["enum"] for option in definition["anyOf"] if "enum" in option
+            )
+            assert choices == ["source", "destination", "custom"]
+            assert definition["default"] is None
+            assert pattern["default"] is None
+            assert "namespace_definition" not in tool.input_schema.get("required", [])
+            assert "custom_namespace_pattern" not in tool.input_schema.get(
+                "required", []
+            )
+            assert "namespace_format" not in properties
+            assert "BigQuery" in definition["description"]
+            assert "stream_namespace" in definition["description"]
+            assert "${SOURCE_NAMESPACE}_raw" in pattern["description"]
+            assert "if any" in pattern["description"]
+            assert "including `${SOURCE_NAMESPACE}`" in (tool.description or "")
+            assert "`custom_namespace_pattern`" in (tool.description or "")
+
+    asyncio.run(inspect_tools())
 
 
 @pytest.fixture

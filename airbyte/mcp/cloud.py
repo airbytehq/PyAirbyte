@@ -130,6 +130,41 @@ if TYPE_CHECKING:
     from airbyte.cloud.sync_results import SyncResult
 
 
+NamespaceDefinitionArg = Annotated[
+    Literal["source", "destination", "custom"] | None,
+    Field(
+        description=(
+            "Destination namespace strategy: source, destination, or custom. "
+            "Generally the schema name; dataset in BigQuery, database in MySQL/ClickHouse, "
+            "or path prefix in S3. "
+            "Independent of table_prefix and the source-side stream_namespace selector. "
+            "Omit to use defaults on create or preserve settings on update."
+        ),
+        default=None,
+    ),
+]
+CustomNamespacePatternArg = Annotated[
+    str | None,
+    Field(
+        description=(
+            "Custom destination namespace pattern. Available interpolation variables "
+            "include: `${SOURCE_NAMESPACE}` (the namespace the source reports for each "
+            "stream, if any). Combine with literal text, e.g. `${SOURCE_NAMESPACE}_raw`, "
+            "or use a fixed schema name. Requires explicitly passing "
+            "namespace_definition='custom', including on update. "
+            "Not a table prefix or source-side stream_namespace selector."
+        ),
+        default=None,
+    ),
+    TraceArg.FINGERPRINT,
+]
+_NAMESPACE_TOOL_HELP = (
+    "To set the destination namespace (usually the schema name), use `namespace_definition` "
+    "(`source`, `destination`, or `custom`). With `custom`, use `custom_namespace_pattern` "
+    "for a pattern supporting interpolation variables including `${SOURCE_NAMESPACE}`. "
+    "Omit both to keep defaults on create or existing settings on update."
+)
+
 DELETE_NAME_GUARD_TIP_TEXT = (
     'IMPORTANT: This operation requires the resource name to contain "delete-me" or '
     '"deleteme" (case insensitive). Otherwise, the deletion is rejected. Do not rename the '
@@ -977,7 +1012,7 @@ def _get_suggested_streams_for_source(
     return suggested_streams
 
 
-@mcp_tool()
+@mcp_tool(extra_help_text=_NAMESPACE_TOOL_HELP)
 def create_connection(  # noqa: PLR0913
     ctx: Context,
     connection_name: Annotated[
@@ -1025,30 +1060,8 @@ def create_connection(  # noqa: PLR0913
         ),
         TraceArg.FINGERPRINT,
     ],
-    namespace_definition: Annotated[
-        Literal["source", "destination", "custom"] | None,
-        Field(
-            description="Destination namespace strategy: source, destination, or custom. "
-            "Generally the schema name; dataset in BigQuery, database in MySQL/ClickHouse, "
-            "or path prefix in S3. "
-            "Independent of table_prefix and the source-side stream_namespace selector. "
-            "Omit to use defaults on create or preserve settings on update.",
-            default=None,
-        ),
-    ] = None,
-    custom_namespace_pattern: Annotated[
-        str | None,
-        Field(
-            description="Custom destination namespace pattern. Available interpolation variables "
-            "include: `${SOURCE_NAMESPACE}` (the namespace the source reports for each "
-            "stream, if any). Combine with literal text, e.g. `${SOURCE_NAMESPACE}_raw`, "
-            "or use a fixed schema name. Requires explicitly passing "
-            "namespace_definition='custom', including on update. "
-            "Not a table prefix or source-side stream_namespace selector.",
-            default=None,
-        ),
-        TraceArg.FINGERPRINT,
-    ] = None,
+    namespace_definition: NamespaceDefinitionArg = None,
+    custom_namespace_pattern: CustomNamespacePatternArg = None,
 ) -> str:
     """Create a connection between a deployed source and destination on Airbyte Cloud.
 
@@ -1056,11 +1069,6 @@ def create_connection(  # noqa: PLR0913
     `incremental_append`, `full_refresh_overwrite_deduped`, `full_refresh_overwrite`,
     then `full_refresh_append`, subject to cursor and primary-key availability.
     If stream properties cannot be loaded, new streams use API defaults instead.
-
-    To set the destination namespace (usually the schema name), use `namespace_definition`
-    (`source`, `destination`, or `custom`). With `custom`, use `custom_namespace_pattern`
-    for a pattern supporting interpolation variables including `${SOURCE_NAMESPACE}`.
-    Omit both to keep defaults on create or existing settings on update.
 
     New connections use a manual schedule by default. Automatic syncs require a later
     schedule update with `update_connection`.
@@ -4528,6 +4536,7 @@ def _update_cloud_connection_impl(  # noqa: PLR0913
 @mcp_tool(
     destructive=True,  # Overwrites existing connection settings and stream configurations
     idempotent=True,
+    extra_help_text=_NAMESPACE_TOOL_HELP,
 )
 def update_connection(  # noqa: PLR0913
     ctx: Context,
@@ -4626,37 +4635,10 @@ def update_connection(  # noqa: PLR0913
         ),
         TraceArg.OMIT,
     ],
-    namespace_definition: Annotated[
-        Literal["source", "destination", "custom"] | None,
-        Field(
-            description="Destination namespace strategy: source, destination, or custom. "
-            "Generally the schema name; dataset in BigQuery, database in MySQL/ClickHouse, "
-            "or path prefix in S3. "
-            "Independent of table_prefix and the source-side stream_namespace selector. "
-            "Omit to use defaults on create or preserve settings on update.",
-            default=None,
-        ),
-    ] = None,
-    custom_namespace_pattern: Annotated[
-        str | None,
-        Field(
-            description="Custom destination namespace pattern. Available interpolation variables "
-            "include: `${SOURCE_NAMESPACE}` (the namespace the source reports for each "
-            "stream, if any). Combine with literal text, e.g. `${SOURCE_NAMESPACE}_raw`, "
-            "or use a fixed schema name. Requires explicitly passing "
-            "namespace_definition='custom', including on update. "
-            "Not a table prefix or source-side stream_namespace selector.",
-            default=None,
-        ),
-        TraceArg.FINGERPRINT,
-    ] = None,
+    namespace_definition: NamespaceDefinitionArg = None,
+    custom_namespace_pattern: CustomNamespacePatternArg = None,
 ) -> str:
     """Update a connection's settings and stream configurations on Airbyte Cloud.
-
-    To set the destination namespace (usually the schema name), use `namespace_definition`
-    (`source`, `destination`, or `custom`). With `custom`, use `custom_namespace_pattern`
-    for a pattern supporting interpolation variables including `${SOURCE_NAMESPACE}`.
-    Omit both to keep defaults on create or existing settings on update.
 
     This tool can update the connection status, schedule, and per-stream sync configuration.
     `interval_hours`, `cron_expression`, and `manual_schedule=True` are mutually exclusive.
@@ -4682,6 +4664,7 @@ def update_connection(  # noqa: PLR0913
 
 @mcp_tool(
     title="Update connection (unsafe)",  # Parenthesize 'unsafe' qualifier in tool title
+    extra_help_text=_NAMESPACE_TOOL_HELP,
     destructive=True,
     insiders_only=True,
 )
@@ -4781,37 +4764,10 @@ def update_connection_unsafe(  # noqa: PLR0913
         ),
         TraceArg.OMIT,
     ],
-    namespace_definition: Annotated[
-        Literal["source", "destination", "custom"] | None,
-        Field(
-            description="Destination namespace strategy: source, destination, or custom. "
-            "Generally the schema name; dataset in BigQuery, database in MySQL/ClickHouse, "
-            "or path prefix in S3. "
-            "Independent of table_prefix and the source-side stream_namespace selector. "
-            "Omit to use defaults on create or preserve settings on update.",
-            default=None,
-        ),
-    ] = None,
-    custom_namespace_pattern: Annotated[
-        str | None,
-        Field(
-            description="Custom destination namespace pattern. Available interpolation variables "
-            "include: `${SOURCE_NAMESPACE}` (the namespace the source reports for each "
-            "stream, if any). Combine with literal text, e.g. `${SOURCE_NAMESPACE}_raw`, "
-            "or use a fixed schema name. Requires explicitly passing "
-            "namespace_definition='custom', including on update. "
-            "Not a table prefix or source-side stream_namespace selector.",
-            default=None,
-        ),
-        TraceArg.FINGERPRINT,
-    ] = None,
+    namespace_definition: NamespaceDefinitionArg = None,
+    custom_namespace_pattern: CustomNamespacePatternArg = None,
 ) -> str:
     """Update connection settings and override stream configurations despite saved state.
-
-    To set the destination namespace (usually the schema name), use `namespace_definition`
-    (`source`, `destination`, or `custom`). With `custom`, use `custom_namespace_pattern`
-    for a pattern supporting interpolation variables including `${SOURCE_NAMESPACE}`.
-    Omit both to keep defaults on create or existing settings on update.
 
     Unsafe changes can make the destination's data inconsistent. By default, the platform
     refreshes or resets every changed stream.
