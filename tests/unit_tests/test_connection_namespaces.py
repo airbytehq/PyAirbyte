@@ -64,7 +64,7 @@ def test_namespace_update_write_order(
         ],
         apply_discover_request_id=None,
         workspace_id=None,
-        namespace_definition="custom",
+        namespace_strategy="custom",
         custom_namespace_pattern="new_schema",
     )
 
@@ -74,7 +74,7 @@ def test_namespace_update_write_order(
     ]
     assert (
         call.set_namespace(
-            namespace_definition="custom", custom_namespace_pattern="new_schema"
+            namespace_strategy="custom", custom_namespace_pattern="new_schema"
         )
         in connection.mock_calls
     )
@@ -127,7 +127,7 @@ def test_invalid_stream_override_does_not_disable(
             ],
             apply_discover_request_id=None,
             workspace_id=None,
-            namespace_definition="custom",
+            namespace_strategy="custom",
             custom_namespace_pattern="new_schema",
         )
 
@@ -152,7 +152,7 @@ def test_namespace_tool_schemas() -> None:
         ):
             tool = tools[name]
             properties = tool.input_schema["properties"]
-            definition = properties["namespace_definition"]
+            definition = properties["namespace_strategy"]
             pattern = properties["custom_namespace_pattern"]
             choices = next(
                 option["enum"] for option in definition["anyOf"] if "enum" in option
@@ -160,7 +160,7 @@ def test_namespace_tool_schemas() -> None:
             assert choices == ["source", "destination", "custom"]
             assert definition["default"] is None
             assert pattern["default"] is None
-            assert "namespace_definition" not in tool.input_schema.get("required", [])
+            assert "namespace_strategy" not in tool.input_schema.get("required", [])
             assert "custom_namespace_pattern" not in tool.input_schema.get(
                 "required", []
             )
@@ -253,7 +253,7 @@ def test_namespace_payload(
             workspace_id=None,
             selected_streams=["users"],
             table_prefix="prefix_",
-            namespace_definition=definition,
+            namespace_strategy=definition,
             custom_namespace_pattern=template,
         )
         request = backend.create_connection.call_args.args[0]
@@ -277,7 +277,7 @@ def test_namespace_payload(
             override_stream_configs=None,
             apply_discover_request_id=None,
             workspace_id=None,
-            namespace_definition=definition,
+            namespace_strategy=definition,
             custom_namespace_pattern=template,
         )
         request = backend.patch_connection.call_args.args[0].connection_patch_request
@@ -323,7 +323,7 @@ def test_invalid_namespace_settings_do_not_write(
                 workspace_id=None,
                 selected_streams=["users"],
                 table_prefix=None,
-                namespace_definition=definition,
+                namespace_strategy=definition,
                 custom_namespace_pattern=template,
             )
         else:
@@ -342,7 +342,7 @@ def test_invalid_namespace_settings_do_not_write(
                 override_stream_configs=None,
                 apply_discover_request_id=None,
                 workspace_id=None,
-                namespace_definition=definition,
+                namespace_strategy=definition,
                 custom_namespace_pattern=template,
             )
     backend.create_connection.assert_not_called()

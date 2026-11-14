@@ -22,7 +22,7 @@ def _validate_update_connection_args(
     manual_schedule: bool | None,
     override_stream_configs: list[StreamConfigOverride] | None,
     apply_discover_request_id: str | None,
-    namespace_definition: str | None = None,
+    namespace_strategy: str | None = None,
     custom_namespace_pattern: str | None = None,
 ) -> None:
     """Validate the connection settings before any API writes."""
@@ -34,7 +34,7 @@ def _validate_update_connection_args(
             manual_schedule is not None,
             bool(override_stream_configs),
             apply_discover_request_id is not None,
-            namespace_definition is not None,
+            namespace_strategy is not None,
             custom_namespace_pattern is not None,
         )
     ):
@@ -42,7 +42,7 @@ def _validate_update_connection_args(
             message=(
                 "At least one setting must be provided: 'enabled', 'interval_hours', "
                 "'cron_expression', 'manual_schedule', 'override_stream_configs', "
-                "'apply_discover_request_id', 'namespace_definition', or "
+                "'apply_discover_request_id', 'namespace_strategy', or "
                 "'custom_namespace_pattern'."
             ),
         )

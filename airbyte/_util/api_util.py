@@ -2151,17 +2151,17 @@ def build_connection_schedule(
 
 
 def validate_namespace_settings(
-    namespace_definition: Literal["source", "destination", "custom"] | None,
+    namespace_strategy: Literal["source", "destination", "custom"] | None,
     custom_namespace_pattern: str | None,
 ) -> None:
     """Validate destination namespace settings before any API writes."""
-    if namespace_definition not in {None, "source", "destination", "custom"}:
+    if namespace_strategy not in {None, "source", "destination", "custom"}:
         raise AirbyteLibInputError(
-            message="`namespace_definition` must be source, destination, or custom.",
+            message="`namespace_strategy` must be source, destination, or custom.",
         )
-    if custom_namespace_pattern is not None and namespace_definition != "custom":
+    if custom_namespace_pattern is not None and namespace_strategy != "custom":
         raise AirbyteLibInputError(
-            message="`custom_namespace_pattern` requires `namespace_definition='custom'`.",
+            message="`custom_namespace_pattern` requires `namespace_strategy='custom'`.",
             guidance="Pass both arguments together to set a custom destination namespace.",
         )
     if custom_namespace_pattern is not None and not custom_namespace_pattern.strip():
@@ -2183,7 +2183,7 @@ def create_connection(  # noqa: PLR0913  # Too many arguments
     workspace_id: str | None = None,
     prefix: str,
     selected_stream_names: list[str],
-    namespace_definition: Literal["source", "destination", "custom"] | None = None,
+    namespace_strategy: Literal["source", "destination", "custom"] | None = None,
     custom_namespace_pattern: str | None = None,
 ) -> models.ConnectionResponse:
     """Create a connection with optional destination namespace settings.
@@ -2193,9 +2193,9 @@ def create_connection(  # noqa: PLR0913  # Too many arguments
     `${SOURCE_NAMESPACE}` (the namespace the source reports for each stream, if any).
     Combine it with literal text, e.g. `${SOURCE_NAMESPACE}_raw`, or use a fixed schema
     name. This is independent of table prefixes and source-side stream selectors.
-    A pattern requires explicit `namespace_definition='custom'`; omit both for defaults.
+    A pattern requires explicit `namespace_strategy='custom'`; omit both for defaults.
     """
-    validate_namespace_settings(namespace_definition, custom_namespace_pattern)
+    validate_namespace_settings(namespace_strategy, custom_namespace_pattern)
     _ = workspace_id  # Not used (yet)
     airbyte_instance = get_airbyte_server_instance(
         client_id=client_id,
@@ -2222,11 +2222,9 @@ def create_connection(  # noqa: PLR0913  # Too many arguments
                 prefix=prefix,
                 namespace_definition=(
                     models.NamespaceDefinitionEnum(
-                        "custom_format"
-                        if namespace_definition == "custom"
-                        else namespace_definition
+                        "custom_format" if namespace_strategy == "custom" else namespace_strategy
                     )
-                    if namespace_definition is not None
+                    if namespace_strategy is not None
                     else None
                 ),
                 namespace_format=custom_namespace_pattern,
@@ -2397,7 +2395,7 @@ def patch_connection(  # noqa: PLR0913  # Too many arguments
     schedule: models.AirbyteAPIConnectionSchedule | None = None,
     prefix: str | None = None,
     status: str | models.ConnectionStatusEnum | None = None,
-    namespace_definition: Literal["source", "destination", "custom"] | None = None,
+    namespace_strategy: Literal["source", "destination", "custom"] | None = None,
     custom_namespace_pattern: str | None = None,
 ) -> models.ConnectionResponse:
     """Update/patch a connection configuration.
@@ -2421,14 +2419,14 @@ def patch_connection(  # noqa: PLR0913  # Too many arguments
         configurations: Optional new stream configurations
         schedule: Optional new sync schedule
         prefix: Optional new table prefix
-        namespace_definition: Destination namespace strategy; omitted preserves settings.
+        namespace_strategy: Destination namespace strategy; omitted preserves settings.
         custom_namespace_pattern: Custom destination template; requires explicit `custom`.
         status: Optional new connection status
 
     Returns:
         Updated ConnectionResponse object
     """
-    validate_namespace_settings(namespace_definition, custom_namespace_pattern)
+    validate_namespace_settings(namespace_strategy, custom_namespace_pattern)
     airbyte_instance = get_airbyte_server_instance(
         client_id=client_id,
         client_secret=client_secret,
@@ -2462,10 +2460,10 @@ def patch_connection(  # noqa: PLR0913  # Too many arguments
                     namespace_definition=(
                         models.NamespaceDefinitionEnumNoDefault(
                             "custom_format"
-                            if namespace_definition == "custom"
-                            else namespace_definition
+                            if namespace_strategy == "custom"
+                            else namespace_strategy
                         )
-                        if namespace_definition is not None
+                        if namespace_strategy is not None
                         else None
                     ),
                     namespace_format=custom_namespace_pattern,
