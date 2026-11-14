@@ -1439,7 +1439,7 @@ class CloudConnection:  # noqa: PLR0904  # Too many public methods
     def set_namespace(
         self,
         *,
-        namespace_strategy: Literal["source", "destination", "custom"] | None = None,
+        namespace_provider: Literal["source", "destination", "custom"] | None = None,
         custom_namespace_pattern: str | None = None,
     ) -> CloudConnection:
         """Set destination namespaces independently of table prefixes or stream selectors.
@@ -1452,7 +1452,7 @@ class CloudConnection:  # noqa: PLR0904  # Too many public methods
         `stream_namespace` selectors.
 
         Omitted values preserve settings. A template requires explicitly passing
-        `namespace_strategy='custom'`.
+        `namespace_provider='custom'`.
         """
         updated_response = api_util.patch_connection(
             connection_id=self.connection_id,
@@ -1460,7 +1460,7 @@ class CloudConnection:  # noqa: PLR0904  # Too many public methods
             client_id=self.workspace.client_id,
             client_secret=self.workspace.client_secret,
             bearer_token=self.workspace.bearer_token,
-            namespace_strategy=namespace_strategy,
+            namespace_provider=namespace_provider,
             custom_namespace_pattern=custom_namespace_pattern,
         )
         self._connection_info = CloudConnectionInfo.from_api_response(updated_response)

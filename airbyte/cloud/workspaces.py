@@ -1072,7 +1072,7 @@ class CloudWorkspace:
         selected_streams: list[str],
         destination: cloud_connectors.CloudDestination | str,
         table_prefix: str | None = None,
-        namespace_strategy: Literal["source", "destination", "custom"] | None = None,
+        namespace_provider: Literal["source", "destination", "custom"] | None = None,
         custom_namespace_pattern: str | None = None,
     ) -> CloudConnection:
         """Create a new connection between an already deployed source and destination.
@@ -1094,7 +1094,7 @@ class CloudWorkspace:
             table_prefix: Optional prefix for destination table names. Use it to keep
                 connections to the same destination from writing to the same table
                 (namespace + name).
-            namespace_strategy: Destination namespace strategy; omitted uses API defaults.
+            namespace_provider: Destination namespace strategy; omitted uses API defaults.
             custom_namespace_pattern: Custom destination template; requires explicit `custom`.
             selected_streams: The selected stream names to sync within the connection.
         """
@@ -1116,7 +1116,7 @@ class CloudWorkspace:
             workspace_id=self.workspace_id,
             selected_stream_names=selected_streams,
             prefix=table_prefix or "",
-            namespace_strategy=namespace_strategy,
+            namespace_provider=namespace_provider,
             custom_namespace_pattern=custom_namespace_pattern,
             client_id=self.client_id,
             client_secret=self.client_secret,

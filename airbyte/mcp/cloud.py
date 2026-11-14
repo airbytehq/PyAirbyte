@@ -130,7 +130,7 @@ if TYPE_CHECKING:
     from airbyte.cloud.sync_results import SyncResult
 
 
-NamespaceStrategyArg = Annotated[
+NamespaceProviderArg = Annotated[
     Literal["source", "destination", "custom"] | None,
     Field(
         description=(
@@ -151,7 +151,7 @@ CustomNamespacePatternArg = Annotated[
             "include: `${SOURCE_NAMESPACE}` (the namespace the source reports for each "
             "stream, if any). Combine with literal text, e.g. `${SOURCE_NAMESPACE}_raw`, "
             "or use a fixed schema name. Requires explicitly passing "
-            "namespace_strategy='custom', including on update. "
+            "namespace_provider='custom', including on update. "
             "Not a table prefix or source-side stream_namespace selector."
         ),
         default=None,
@@ -159,7 +159,7 @@ CustomNamespacePatternArg = Annotated[
     TraceArg.FINGERPRINT,
 ]
 _NAMESPACE_TOOL_HELP = (
-    "To set the destination namespace (usually the schema name), use `namespace_strategy` "
+    "To set the destination namespace (usually the schema name), use `namespace_provider` "
     "(`source`, `destination`, or `custom`). With `custom`, use `custom_namespace_pattern` "
     "for a pattern supporting interpolation variables including `${SOURCE_NAMESPACE}`. "
     "Omit both to keep defaults on create or existing settings on update."
@@ -1060,7 +1060,7 @@ def create_connection(  # noqa: PLR0913
         ),
         TraceArg.FINGERPRINT,
     ],
-    namespace_strategy: NamespaceStrategyArg = None,
+    namespace_provider: NamespaceProviderArg = None,
     custom_namespace_pattern: CustomNamespacePatternArg = None,
 ) -> str:
     """Create a connection between a deployed source and destination on Airbyte Cloud.
@@ -1080,7 +1080,7 @@ def create_connection(  # noqa: PLR0913
     Two connections to the same destination cannot write to the same table (namespace +
     name). Use `table_prefix` (for example `<source>_`) to keep them separate.
     """
-    api_util.validate_namespace_settings(namespace_strategy, custom_namespace_pattern)
+    api_util.validate_namespace_settings(namespace_provider, custom_namespace_pattern)
     resolved_streams_list: list[str] = resolve_list_of_strings(selected_streams) or []
     workspace: CloudWorkspace = _get_cloud_workspace_for_resource(
         ctx, workspace_id, connector_id=source_id, connector_type=ConnectorType.SOURCE
@@ -1113,7 +1113,7 @@ def create_connection(  # noqa: PLR0913
         destination=destination_id,
         selected_streams=resolved_streams_list,
         table_prefix=table_prefix,
-        namespace_strategy=namespace_strategy,
+        namespace_provider=namespace_provider,
         custom_namespace_pattern=custom_namespace_pattern,
     )
 
@@ -4470,13 +4470,13 @@ def _update_cloud_connection_impl(  # noqa: PLR0913
     apply_discover_request_id: str | None,
     workspace_id: str | None,
     allow_unsafe: bool,
-    namespace_strategy: Literal["source", "destination", "custom"] | None = None,
+    namespace_provider: Literal["source", "destination", "custom"] | None = None,
     custom_namespace_pattern: str | None = None,
 ) -> str:
     """Validate and apply settings in the order that protects catalog updates."""
-    api_util.validate_namespace_settings(namespace_strategy, custom_namespace_pattern)
+    api_util.validate_namespace_settings(namespace_provider, custom_namespace_pattern)
     _validate_update_connection_args(
-        namespace_strategy=namespace_strategy,
+        namespace_provider=namespace_provider,
         custom_namespace_pattern=custom_namespace_pattern,
         enabled=enabled,
         cron_expression=cron_expression,
@@ -4504,9 +4504,9 @@ def _update_cloud_connection_impl(  # noqa: PLR0913
         connection.set_enabled(enabled=False)
         changes_made.append("status set to 'disabled'")
 
-    if namespace_strategy is not None or custom_namespace_pattern is not None:
+    if namespace_provider is not None or custom_namespace_pattern is not None:
         connection.set_namespace(
-            namespace_strategy=namespace_strategy,
+            namespace_provider=namespace_provider,
             custom_namespace_pattern=custom_namespace_pattern,
         )
         changes_made.append("destination namespace updated")
@@ -4634,7 +4634,7 @@ def update_connection(  # noqa: PLR0913
         ),
         TraceArg.OMIT,
     ],
-    namespace_strategy: NamespaceStrategyArg = None,
+    namespace_provider: NamespaceProviderArg = None,
     custom_namespace_pattern: CustomNamespacePatternArg = None,
 ) -> str:
     """Update a connection's settings and stream configurations on Airbyte Cloud.
@@ -4656,7 +4656,7 @@ def update_connection(  # noqa: PLR0913
         apply_discover_request_id=apply_discover_request_id,
         workspace_id=workspace_id,
         allow_unsafe=False,
-        namespace_strategy=namespace_strategy,
+        namespace_provider=namespace_provider,
         custom_namespace_pattern=custom_namespace_pattern,
     )
 
@@ -4763,7 +4763,7 @@ def update_connection_unsafe(  # noqa: PLR0913
         ),
         TraceArg.OMIT,
     ],
-    namespace_strategy: NamespaceStrategyArg = None,
+    namespace_provider: NamespaceProviderArg = None,
     custom_namespace_pattern: CustomNamespacePatternArg = None,
 ) -> str:
     """Update connection settings and override stream configurations despite saved state.
@@ -4783,7 +4783,7 @@ def update_connection_unsafe(  # noqa: PLR0913
         apply_discover_request_id=apply_discover_request_id,
         workspace_id=workspace_id,
         allow_unsafe=True,
-        namespace_strategy=namespace_strategy,
+        namespace_provider=namespace_provider,
         custom_namespace_pattern=custom_namespace_pattern,
     )
 

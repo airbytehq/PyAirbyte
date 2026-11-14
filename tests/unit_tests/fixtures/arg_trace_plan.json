@@ -16,7 +16,7 @@
     "connection_name": "fingerprint",
     "custom_namespace_pattern": "fingerprint",
     "destination_id": "hash",
-    "namespace_strategy": "value allowed=[\"custom\",\"destination\",\"source\"]",
+    "namespace_provider": "value allowed=[\"custom\",\"destination\",\"source\"]",
     "selected_streams": "fingerprint list",
     "source_id": "hash",
     "table_prefix": "fingerprint",
@@ -428,7 +428,7 @@
     "enabled": "value allowed=[false,true]",
     "interval_hours": "hash",
     "manual_schedule": "value allowed=[false,true]",
-    "namespace_strategy": "value allowed=[\"custom\",\"destination\",\"source\"]",
+    "namespace_provider": "value allowed=[\"custom\",\"destination\",\"source\"]",
     "override_stream_configs": "fingerprint list",
     "workspace_id": "omit"
   },
@@ -440,7 +440,7 @@
     "enabled": "value allowed=[false,true]",
     "interval_hours": "hash",
     "manual_schedule": "value allowed=[false,true]",
-    "namespace_strategy": "value allowed=[\"custom\",\"destination\",\"source\"]",
+    "namespace_provider": "value allowed=[\"custom\",\"destination\",\"source\"]",
     "override_stream_configs": "fingerprint list",
     "workspace_id": "omit"
   },
