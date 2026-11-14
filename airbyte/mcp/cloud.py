@@ -4491,11 +4491,6 @@ def _update_cloud_connection_impl(  # noqa: PLR0913
     )
     connection = workspace.get_connection(connection_id=connection_id)
 
-    changes_made: list[str] = []
-    if enabled is False:
-        connection.set_enabled(enabled=False)
-        changes_made.append("status set to 'disabled'")
-
     stream_config_result = _apply_stream_config_overrides(
         ctx,
         connection,
@@ -4504,8 +4499,10 @@ def _update_cloud_connection_impl(  # noqa: PLR0913
         apply_discover_request_id=apply_discover_request_id,
     )
 
-    if stream_config_result:
-        changes_made.extend(stream_config_result.summary_lines())
+    changes_made = stream_config_result.summary_lines() if stream_config_result else []
+    if enabled is False:
+        connection.set_enabled(enabled=False)
+        changes_made.append("status set to 'disabled'")
 
     if namespace_definition is not None or custom_namespace_pattern is not None:
         connection.set_namespace(

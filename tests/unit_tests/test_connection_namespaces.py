@@ -14,6 +14,7 @@ from airbyte_api import models, utils
 from fastmcp import Client, FastMCP
 
 from airbyte._util import api_util
+from airbyte.cloud.models import StreamConfigOverride
 from airbyte.cloud.workspaces import CloudWorkspace
 from airbyte.exceptions import AirbyteLibInputError
 from airbyte.mcp import cloud as cloud_mcp
@@ -36,8 +37,11 @@ def test_namespace_update_write_order(
     interval_hours: int | None,
     expected_calls: list[str],
 ) -> None:
-    """Disable first, but set the namespace before anything that can start a sync."""
+    """Apply stream overrides first, then namespace before enabling or scheduling."""
     connection = MagicMock(connection_url="https://example.com/connection")
+    connection.update_stream_configs.return_value = SimpleNamespace(
+        summary_lines=lambda: ["stream configs updated"]
+    )
     workspace = MagicMock()
     workspace.get_connection.return_value = connection
     monkeypatch.setattr(
@@ -55,14 +59,19 @@ def test_namespace_update_write_order(
         cron_expression=None,
         interval_hours=interval_hours,
         manual_schedule=None,
-        override_stream_configs=None,
+        override_stream_configs=[
+            StreamConfigOverride(stream_name="users", cursor_field="updated_at")
+        ],
         apply_discover_request_id=None,
         workspace_id=None,
         namespace_definition="custom",
         custom_namespace_pattern="new_schema",
     )
 
-    assert [entry[0] for entry in connection.mock_calls] == expected_calls
+    assert [entry[0] for entry in connection.mock_calls] == [
+        "update_stream_configs",
+        *expected_calls,
+    ]
     assert (
         call.set_namespace(
             namespace_definition="custom", custom_namespace_pattern="new_schema"
@@ -83,6 +92,49 @@ def test_namespace_update_write_order(
         assert result.index("destination namespace updated") < result.index(
             "schedule set to"
         )
+
+
+@pytest.mark.parametrize("unsafe", [False, True])
+def test_invalid_stream_override_does_not_disable(
+    monkeypatch: pytest.MonkeyPatch,
+    unsafe: bool,
+) -> None:
+    """A rejected stream override must not partially apply status or namespace writes."""
+    connection = MagicMock()
+    connection.update_stream_configs.side_effect = AirbyteLibInputError(
+        message="Unknown stream: missing"
+    )
+    workspace = MagicMock()
+    workspace.get_connection.return_value = connection
+    monkeypatch.setattr(
+        cloud_mcp,
+        "_get_cloud_workspace_for_resource",
+        lambda *_args, **_kwargs: workspace,
+    )
+    monkeypatch.setattr(cloud_mcp, "check_guid_created_in_session", lambda *_args: None)
+    tool = cloud_mcp.update_connection_unsafe if unsafe else cloud_mcp.update_connection
+
+    with pytest.raises(AirbyteLibInputError, match="Unknown stream"):
+        tool(
+            ctx=None,
+            connection_id="12345678-1234-1234-1234-1234567890ab",
+            enabled=False,
+            cron_expression=None,
+            interval_hours=24,
+            manual_schedule=None,
+            override_stream_configs=[
+                StreamConfigOverride(stream_name="missing", cursor_field="updated_at")
+            ],
+            apply_discover_request_id=None,
+            workspace_id=None,
+            namespace_definition="custom",
+            custom_namespace_pattern="new_schema",
+        )
+
+    connection.update_stream_configs.assert_called_once()
+    connection.set_enabled.assert_not_called()
+    connection.set_namespace.assert_not_called()
+    connection.set_schedule.assert_not_called()
 
 
 def test_namespace_tool_schemas() -> None:
