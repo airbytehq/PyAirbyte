@@ -1436,6 +1436,36 @@ class CloudConnection:  # noqa: PLR0904  # Too many public methods
         self._connection_info = CloudConnectionInfo.from_api_response(updated_response)
         return self
 
+    def set_namespace(
+        self,
+        *,
+        namespace_provider: Literal["source", "destination", "custom"] | None = None,
+        custom_namespace_pattern: str | None = None,
+    ) -> CloudConnection:
+        """Set destination namespaces independently of table prefixes or stream selectors.
+
+        A destination namespace is generally a schema name: a dataset in BigQuery,
+        database in MySQL/ClickHouse, or path prefix in S3. Available interpolation
+        variables include `${SOURCE_NAMESPACE}` (the namespace the source reports for
+        each stream, if any). Combine it with literal text, e.g. `${SOURCE_NAMESPACE}_raw`,
+        or use a fixed schema name. This is independent of table prefixes and source-side
+        `stream_namespace` selectors.
+
+        Omitted values preserve settings. A template requires explicitly passing
+        `namespace_provider='custom'`.
+        """
+        updated_response = api_util.patch_connection(
+            connection_id=self.connection_id,
+            api_root=self.workspace.api_root,
+            client_id=self.workspace.client_id,
+            client_secret=self.workspace.client_secret,
+            bearer_token=self.workspace.bearer_token,
+            namespace_provider=namespace_provider,
+            custom_namespace_pattern=custom_namespace_pattern,
+        )
+        self._connection_info = CloudConnectionInfo.from_api_response(updated_response)
+        return self
+
     def set_table_prefix(self, prefix: str) -> CloudConnection:
         """Set the table prefix for the connection.
 

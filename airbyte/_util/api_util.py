@@ -2150,6 +2150,27 @@ def build_connection_schedule(
     )
 
 
+def validate_namespace_settings(
+    namespace_provider: Literal["source", "destination", "custom"] | None,
+    custom_namespace_pattern: str | None,
+) -> None:
+    """Validate destination namespace settings before any API writes."""
+    if namespace_provider not in {None, "source", "destination", "custom"}:
+        raise AirbyteLibInputError(
+            message="`namespace_provider` must be source, destination, or custom.",
+        )
+    if custom_namespace_pattern is not None and namespace_provider != "custom":
+        raise AirbyteLibInputError(
+            message="`custom_namespace_pattern` requires `namespace_provider='custom'`.",
+            guidance="Pass both arguments together to set a custom destination namespace.",
+        )
+    if custom_namespace_pattern is not None and not custom_namespace_pattern.strip():
+        raise AirbyteLibInputError(
+            message="`custom_namespace_pattern` must not be empty.",
+            guidance="Provide a template such as `${SOURCE_NAMESPACE}` or a fixed schema name.",
+        )
+
+
 def create_connection(  # noqa: PLR0913  # Too many arguments
     name: str,
     *,
@@ -2162,7 +2183,19 @@ def create_connection(  # noqa: PLR0913  # Too many arguments
     workspace_id: str | None = None,
     prefix: str,
     selected_stream_names: list[str],
+    namespace_provider: Literal["source", "destination", "custom"] | None = None,
+    custom_namespace_pattern: str | None = None,
 ) -> models.ConnectionResponse:
+    """Create a connection with optional destination namespace settings.
+
+    Namespaces generally name destination schemas: datasets in BigQuery, databases in
+    MySQL/ClickHouse, or path prefixes in S3. Available interpolation variables include
+    `${SOURCE_NAMESPACE}` (the namespace the source reports for each stream, if any).
+    Combine it with literal text, e.g. `${SOURCE_NAMESPACE}_raw`, or use a fixed schema
+    name. This is independent of table prefixes and source-side stream selectors.
+    A pattern requires explicit `namespace_provider='custom'`; omit both for defaults.
+    """
+    validate_namespace_settings(namespace_provider, custom_namespace_pattern)
     _ = workspace_id  # Not used (yet)
     airbyte_instance = get_airbyte_server_instance(
         client_id=client_id,
@@ -2187,6 +2220,14 @@ def create_connection(  # noqa: PLR0913  # Too many arguments
                 destination_id=destination_id,
                 configurations=stream_configurations_obj,
                 prefix=prefix,
+                namespace_definition=(
+                    models.NamespaceDefinitionEnum(
+                        "custom_format" if namespace_provider == "custom" else namespace_provider
+                    )
+                    if namespace_provider is not None
+                    else None
+                ),
+                namespace_format=custom_namespace_pattern,
             ),
         )
     except SDKError as e:
@@ -2354,11 +2395,19 @@ def patch_connection(  # noqa: PLR0913  # Too many arguments
     schedule: models.AirbyteAPIConnectionSchedule | None = None,
     prefix: str | None = None,
     status: str | models.ConnectionStatusEnum | None = None,
+    namespace_provider: Literal["source", "destination", "custom"] | None = None,
+    custom_namespace_pattern: str | None = None,
 ) -> models.ConnectionResponse:
     """Update/patch a connection configuration.
 
     This is a destructive operation that can break existing connections if the
     configuration is changed incorrectly.
+
+    Namespaces generally name destination schemas: datasets in BigQuery, databases in
+    MySQL/ClickHouse, or path prefixes in S3. Available interpolation variables include
+    `${SOURCE_NAMESPACE}` (the namespace the source reports for each stream, if any).
+    Combine it with literal text, e.g. `${SOURCE_NAMESPACE}_raw`, or use a fixed schema
+    name. This is independent of table prefixes and source-side stream selectors.
 
     Args:
         connection_id: The ID of the connection to update
@@ -2370,11 +2419,14 @@ def patch_connection(  # noqa: PLR0913  # Too many arguments
         configurations: Optional new stream configurations
         schedule: Optional new sync schedule
         prefix: Optional new table prefix
+        namespace_provider: Destination namespace strategy; omitted preserves settings.
+        custom_namespace_pattern: Custom destination template; requires explicit `custom`.
         status: Optional new connection status
 
     Returns:
         Updated ConnectionResponse object
     """
+    validate_namespace_settings(namespace_provider, custom_namespace_pattern)
     airbyte_instance = get_airbyte_server_instance(
         client_id=client_id,
         client_secret=client_secret,
@@ -2405,6 +2457,16 @@ def patch_connection(  # noqa: PLR0913  # Too many arguments
                     schedule=schedule,
                     prefix=prefix,
                     status=status_value,
+                    namespace_definition=(
+                        models.NamespaceDefinitionEnumNoDefault(
+                            "custom_format"
+                            if namespace_provider == "custom"
+                            else namespace_provider
+                        )
+                        if namespace_provider is not None
+                        else None
+                    ),
+                    namespace_format=custom_namespace_pattern,
                 ),
             ),
         )
