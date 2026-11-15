@@ -10,9 +10,12 @@ from airbyte_api.models import (
     BatchedStandardInserts,
     DatasetLocation,
     DestinationBigquery,
+    DestinationDatabricks,
     DestinationDuckdb,
     DestinationPostgres,
     DestinationSnowflake,
+    OAuth2Recommended,
+    PersonalAccessToken,
     UsernameAndPassword,
 )
 
@@ -26,6 +29,7 @@ if TYPE_CHECKING:
     from airbyte._util import api_util
     from airbyte.caches.base import CacheBase
     from airbyte.caches.bigquery import BigQueryCache
+    from airbyte.caches.databricks import DatabricksCache
     from airbyte.caches.duckdb import DuckDBCache
     from airbyte.caches.motherduck import MotherDuckCache
     from airbyte.caches.postgres import PostgresCache
@@ -42,6 +46,8 @@ def cache_to_destination_configuration(
     conversion_fn_map: dict[str, Callable[[Any], api_util.DestinationConfiguration]] = {
         "BigQueryCache": bigquery_cache_to_destination_configuration,
         "bigquery": bigquery_cache_to_destination_configuration,
+        "DatabricksCache": databricks_cache_to_destination_configuration,
+        "databricks": databricks_cache_to_destination_configuration,
         "DuckDBCache": duckdb_cache_to_destination_configuration,
         "duckdb": duckdb_cache_to_destination_configuration,
         "MotherDuckCache": motherduck_cache_to_destination_configuration,
@@ -133,4 +139,39 @@ def bigquery_cache_to_destination_configuration(
         dataset_location=DatasetLocation(cache.dataset_location),
         credentials_json=credentials_json,
         loading_method=BatchedStandardInserts(),
+    )
+
+
+def databricks_cache_to_destination_configuration(
+    cache: DatabricksCache,
+) -> DestinationDatabricks:
+    """Get the destination configuration from the Databricks cache.
+
+    The destination's `accept_terms` flag (agreement to the Databricks JDBC driver terms) is left
+    at its default, since that is a decision for the user rather than the cache.
+    """
+    authentication: OAuth2Recommended | PersonalAccessToken
+    if cache.client_id is not None and cache.client_secret is not None:
+        authentication = OAuth2Recommended(
+            client_id=cache.client_id,
+            secret=cache.client_secret,
+        )
+    elif cache.access_token is not None:
+        authentication = PersonalAccessToken(
+            personal_access_token=cache.access_token,
+        )
+    else:
+        raise AirbyteLibInputError(
+            message=(
+                "Cannot convert the Databricks cache to a destination configuration "
+                "without an access token or OAuth client credentials."
+            ),
+        )
+
+    return DestinationDatabricks(
+        hostname=cache.server_hostname,
+        http_path=cache.http_path,
+        database=cache.catalog,
+        schema=cache.schema_name,
+        authentication=authentication,
     )

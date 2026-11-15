@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING, Any
 
 from airbyte_api.models import (
     DestinationBigquery,
+    DestinationDatabricks,
     DestinationDuckdb,
     DestinationPostgres,
     DestinationSnowflake,
@@ -17,6 +18,7 @@ from airbyte_api.models import (
 
 from airbyte.caches.base import CacheBase
 from airbyte.caches.bigquery import BigQueryCache
+from airbyte.caches.databricks import DatabricksCache
 from airbyte.caches.duckdb import DuckDBCache
 from airbyte.caches.motherduck import MotherDuckCache
 from airbyte.caches.postgres import PostgresCache
@@ -34,10 +36,13 @@ if TYPE_CHECKING:
 
 
 SNOWFLAKE_PASSWORD_SECRET_NAME = "SNOWFLAKE_PASSWORD"
+DATABRICKS_ACCESS_TOKEN_SECRET_NAME = "DATABRICKS_ACCESS_TOKEN"
+DATABRICKS_CLIENT_SECRET_SECRET_NAME = "DATABRICKS_CLIENT_SECRET"
 
 
 _SUPPORTED_DESTINATION_TYPES: set[str] = {
     "bigquery",
+    "databricks",
     "duckdb",
     "motherduck",
     "postgres",
@@ -58,6 +63,7 @@ def destination_to_cache(
     """Get the destination configuration from the cache."""
     conversion_fn_map: dict[str, Callable[[Any], CacheBase]] = {
         "bigquery": bigquery_destination_to_cache,
+        "databricks": databricks_destination_to_cache,
         "duckdb": duckdb_destination_to_cache,
         "motherduck": motherduck_destination_to_cache,
         "postgres": postgres_destination_to_cache,
@@ -279,4 +285,66 @@ def snowflake_destination_to_cache(
         role=destination_configuration.role,
         username=destination_configuration.username,
         password=snowflake_password,
+    )
+
+
+def _resolve_databricks_secret(value: object, secret_name: str) -> str:
+    """Return a plaintext secret, looking it up by name if the API returned it obfuscated."""
+    if isinstance(value, str) and value and "****" not in value:
+        return value
+    try:
+        return str(get_secret(secret_name))
+    except ValueError as ex:
+        raise AirbyteLibSecretNotFoundError(
+            f"Secret '{secret_name}' is required for the Databricks cache, "
+            "but it was not available."
+        ) from ex
+
+
+def databricks_destination_to_cache(
+    destination_configuration: DestinationDatabricks | dict[str, Any],
+) -> DatabricksCache:
+    """Create a new Databricks cache from the destination configuration.
+
+    We may have to inject credentials, because they are obfuscated when config
+    is returned from the REST API.
+    """
+    if isinstance(destination_configuration, dict):
+        filtered = {
+            k: v
+            for k, v in destination_configuration.items()
+            if k not in {"destinationType", "DESTINATION_TYPE"}
+        }
+        destination_configuration = DestinationDatabricks(**filtered)
+
+    authentication = destination_configuration.authentication
+
+    def _auth_value(key: str) -> object:
+        if isinstance(authentication, dict):
+            return authentication.get(key)
+        return getattr(authentication, key, None)
+
+    client_id = _auth_value("client_id")
+    if client_id:
+        return DatabricksCache(
+            server_hostname=destination_configuration.hostname,
+            http_path=destination_configuration.http_path,
+            catalog=destination_configuration.database,
+            schema_name=destination_configuration.schema or "default",
+            client_id=str(client_id),
+            client_secret=_resolve_databricks_secret(
+                _auth_value("secret"),
+                DATABRICKS_CLIENT_SECRET_SECRET_NAME,
+            ),
+        )
+
+    return DatabricksCache(
+        server_hostname=destination_configuration.hostname,
+        http_path=destination_configuration.http_path,
+        catalog=destination_configuration.database,
+        schema_name=destination_configuration.schema or "default",
+        access_token=_resolve_databricks_secret(
+            _auth_value("personal_access_token"),
+            DATABRICKS_ACCESS_TOKEN_SECRET_NAME,
+        ),
     )
