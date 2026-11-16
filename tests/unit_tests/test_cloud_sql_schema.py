@@ -120,6 +120,57 @@ def test_empty_schema() -> None:
     assert get_sql_schema(connector)["tables"] == []
 
 
+@pytest.mark.parametrize(
+    "last_description", ["First meaning", "Second meaning", "Third meaning"]
+)
+def test_conflicting_field_meanings_stay_blank(last_description: str) -> None:
+    connector = _connector()
+    connector.workspace.list_connections.return_value = [
+        SimpleNamespace(
+            destination_id="destination-1",
+            table_prefix="",
+            namespace_definition="destination",
+            dump_raw_catalog=lambda: {
+                "streams": [
+                    {
+                        "selected": True,
+                        "stream": {
+                            "name": "users",
+                            "json_schema": {
+                                "properties": {"id": {"description": description}}
+                            },
+                        },
+                    }
+                    for description in (
+                        "First meaning",
+                        "Second meaning",
+                        last_description,
+                    )
+                ]
+            },
+        )
+    ]
+    connector.execute_sql_query.side_effect = [
+        ExternalApiExecuteResult(
+            status="success",
+            result=[
+                {
+                    "table_catalog": "project",
+                    "table_schema": "dataset",
+                    "table_name": "users",
+                }
+            ],
+        ),
+        ExternalApiExecuteResult(
+            status="success",
+            connector_metadata={"columns": [{"name": "id", "type": "INT64"}]},
+        ),
+    ]
+    assert get_sql_schema(connector)["tables"] == [
+        {"table": "`project.dataset.users`", "columns": ["id INT64 - "]}
+    ]
+
+
 @pytest.mark.parametrize("has_next_page", [False, True])
 def test_schema_reports_discovery_pagination(has_next_page: bool) -> None:
     connector = _connector()
