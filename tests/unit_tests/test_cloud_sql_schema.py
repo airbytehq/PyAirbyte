@@ -220,6 +220,14 @@ def test_schema_filter_and_cap() -> None:
     assert result["truncated"] is True
 
 
+def test_schema_reports_outer_discovery_pagination() -> None:
+    connector = _connector()
+    discovery = _sql_result([])
+    discovery.connector_metadata.has_next_page = True
+    connector.execute_sql_query.return_value = discovery
+    assert get_sql_schema(connector)["truncated"] is True
+
+
 @pytest.mark.parametrize("prefix_part", ["table_catalog", "table_schema"])
 def test_schema_filter_ignores_database_and_schema(prefix_part: str) -> None:
     connector = _connector()

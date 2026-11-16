@@ -156,6 +156,7 @@ def get_sql_schema(
             len(tables) > max_tables
             or bool(metadata.get("truncated"))
             or bool(metadata.get("next_cursor"))
+            or discovery.connector_metadata.has_next_page is True
         ),
         "warnings": warnings,
     }
