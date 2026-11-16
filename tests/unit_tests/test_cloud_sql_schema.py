@@ -5,8 +5,10 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 import pytest
+from airbyte_api.errors import SDKError
 from fastmcp.exceptions import ToolError
 
+from airbyte._util import api_util
 from airbyte._direct_connectors.models import (
     ExternalApiExecuteResult,
     _SQL_PASSTHROUGH_DESTINATION_DIALECTS,
@@ -212,6 +214,63 @@ def test_destination_list_filter() -> None:
         SimpleNamespace(definition_id="other"),
     ]
     assert len(list_sql_destinations(workspace)) == 1
+
+
+@pytest.mark.parametrize(
+    "tool", [cloud.execute_external_sql_query, cloud.get_external_sql_schema]
+)
+@pytest.mark.parametrize("stage", ["workspace", "connector", "validation"])
+@pytest.mark.parametrize("status", [400, 401, 403, 500])
+@pytest.mark.parametrize("sdk_wrapped", [False, True])
+def test_destination_lookup_cloud_errors(
+    monkeypatch: pytest.MonkeyPatch,
+    tool: object,
+    stage: str,
+    status: int,
+    sdk_wrapped: bool,
+) -> None:
+    workspace = MagicMock()
+    connector = _connector()
+    connector.name = "Warehouse"
+    workspace.list_destinations.return_value = [connector]
+    workspace.get_connector.return_value = connector
+    failure = AirbyteCloudApiError(
+        status_code=status,
+        message="Cloud lookup failed",
+        context={"response_text": '{"detail":"Cloud lookup failed"}'},
+    )
+    if sdk_wrapped:
+        sdk_error = SDKError(
+            "Cloud lookup failed", status, '{"detail":"Cloud lookup failed"}', None
+        )
+        failure = api_util._wrap_sdk_error(sdk_error)
+        failure.__cause__ = sdk_error
+    resolve = MagicMock(return_value=workspace)
+    monkeypatch.setattr(cloud, "_get_cloud_workspace", lambda *_: workspace)
+    monkeypatch.setattr(cloud, "_get_cloud_workspace_for_resource", resolve)
+    if stage == "workspace":
+        resolve.side_effect = failure
+    elif stage == "connector":
+        workspace.get_connector.side_effect = failure
+    else:
+        monkeypatch.setattr(
+            cloud, "require_sql_destination", MagicMock(side_effect=failure)
+        )
+    args = {"sql": "SELECT 1"} if tool is cloud.execute_external_sql_query else {}
+    expected = AirbyteLibInputError if status == 400 else type(failure)
+    with pytest.raises(expected) as caught:
+        tool(None, connector_id="destination-id-placeholder", **args)
+    if status == 400:
+        text = format_user_facing_error(caught.value)
+        assert "Cloud lookup failed" in text
+        assert "destination-1, Warehouse, bigquery" in text
+        wrapped = ToolError("Tool failed")
+        wrapped.__cause__ = caught.value
+        assert "destination-1, Warehouse, bigquery" in agent_error_text(wrapped)
+        connector.execute_sql_query.assert_not_called()
+    else:
+        assert caught.value is failure
+        workspace.list_destinations.assert_not_called()
 
 
 def test_listing_failure_preserves_original(monkeypatch: pytest.MonkeyPatch) -> None:

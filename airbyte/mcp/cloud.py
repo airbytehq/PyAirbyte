@@ -2205,13 +2205,23 @@ def _get_sql_destination(
     try:
         workspace = _get_cloud_workspace_for_resource(ctx, workspace_id, connector_id=connector_id)
         connector = workspace.get_connector(connector_id)
-    except AirbyteMissingResourceError as error:
-        raise _sql_destination_error(
-            ctx, workspace_id, connector_id, resolved_workspace=workspace
-        ) from error
-    try:
-        require_sql_destination(connector)
-    except (AirbyteLibInputError, AirbyteMissingResourceError) as error:
+        try:
+            require_sql_destination(connector)
+        except AirbyteLibInputError as error:
+            raise _sql_destination_error(
+                ctx, workspace_id, connector_id, resolved_workspace=workspace
+            ) from error
+    except AirbyteCloudError as error:
+        status = (
+            error.status_code
+            if isinstance(error, AirbyteCloudApiError)
+            else (error.context or {}).get("status_code")
+        )
+        if status != HTTPStatus.BAD_REQUEST and not (
+            isinstance(error, AirbyteMissingResourceError)
+            and status in {None, HTTPStatus.NOT_FOUND}
+        ):
+            raise
         raise _sql_destination_error(
             ctx, workspace_id, connector_id, resolved_workspace=workspace
         ) from error
