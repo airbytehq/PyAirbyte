@@ -152,8 +152,11 @@ def test_empty_schema() -> None:
 @pytest.mark.parametrize("dialect", ["bigquery", "snowflake"])
 def test_schema_scopes_discovery_before_filter_and_cap(dialect: str) -> None:
     connector = _connector(dialect)
-    quote = "`" if dialect == "bigquery" else '"'
-    scoped_sql = f"SHOW TABLES IN SCHEMA {quote}project{quote}.{quote}dataset{quote}"
+    scoped_sql = (
+        "SHOW TABLES IN SCHEMA `project`.`dataset`"
+        if dialect == "bigquery"
+        else 'SHOW TABLES IN SCHEMA "PROJECT"."DATASET"'
+    )
     other_tables = [
         {
             "table_catalog": "project",
@@ -235,8 +238,10 @@ def test_schema_uses_selected_connection_namespaces(
     connector.execute_sql_query.return_value = _sql_result([], dialect=dialect)
     assert get_sql_schema(connector)["tables"] == []
     quote = "`" if dialect == "bigquery" else '"'
+    database = "project" if dialect == "bigquery" else "PROJECT"
+    expected = expected if dialect == "bigquery" else expected.upper()
     connector.execute_sql_query.assert_called_once_with(
-        f"SHOW TABLES IN SCHEMA {quote}project{quote}.{quote}{expected}{quote}",
+        f"SHOW TABLES IN SCHEMA {quote}{database}{quote}.{quote}{expected}{quote}",
         page_size=1000,
     )
 
@@ -274,6 +279,58 @@ def test_schema_reads_scoped_pages_before_filtering_and_capping() -> None:
     connector.execute_sql_query.assert_any_call(
         None, page_size=1000, cursor="next-page"
     )
+
+
+@pytest.mark.parametrize(
+    "namespace_definition", ["source", "custom_format", "destination"]
+)
+def test_snowflake_discovery_normalizes_namespace_casing(
+    namespace_definition: str,
+) -> None:
+    connector = _connector("snowflake")
+    connector.configuration["database"] = "analytics"
+    connector.configuration["schema"] = "public"
+    connector.workspace.list_connections.return_value = (
+        []
+        if namespace_definition == "destination"
+        else [
+            SimpleNamespace(
+                destination_id="destination-1",
+                table_prefix="",
+                namespace_definition=namespace_definition,
+                namespace_format="${SOURCE_NAMESPACE}",
+                dump_raw_catalog=lambda: {
+                    "streams": [
+                        {
+                            "selected": True,
+                            "stream": {"name": "linear_issues", "namespace": "public"},
+                        }
+                    ]
+                },
+            )
+        ]
+    )
+    connector.execute_sql_query.side_effect = [
+        _sql_result(
+            [
+                {
+                    "database_name": "ANALYTICS",
+                    "schema_name": "PUBLIC",
+                    "name": "LINEAR_ISSUES",
+                }
+            ],
+            dialect="snowflake",
+        ),
+        _sql_result([], [{"name": "ID", "type": "NUMBER"}], dialect="snowflake"),
+    ]
+    result = get_sql_schema(connector, table_name_contains="linear", max_tables=1)
+    connector.execute_sql_query.assert_any_call(
+        'SHOW TABLES IN SCHEMA "ANALYTICS"."PUBLIC"', page_size=1000
+    )
+    assert result["tables"] == [
+        {"table": '"ANALYTICS"."PUBLIC"."LINEAR_ISSUES"', "columns": ["ID NUMBER - "]}
+    ]
+    assert result["truncated"] is False
 
 
 def test_schema_without_known_namespace_does_not_scan_project() -> None:

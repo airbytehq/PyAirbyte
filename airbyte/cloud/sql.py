@@ -85,7 +85,10 @@ def _discovery_queries(namespaces: set[tuple[str, str]], dialect: str) -> list[s
     for database, schema in sorted(namespaces):
         quote = "`" if dialect == "bigquery" else '"'
         scope = ".".join(
-            quote + name.replace(quote, quote * 2) + quote for name in (database, schema)
+            quote
+            + (name.upper() if dialect == "snowflake" else name).replace(quote, quote * 2)
+            + quote
+            for name in (database, schema)
         )
         queries.append(f"SHOW TABLES IN SCHEMA {scope}")
     return queries
