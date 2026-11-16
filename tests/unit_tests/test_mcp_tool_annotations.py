@@ -14,6 +14,7 @@ from airbyte.mcp.registry import list_connector_definitions
 
 READ_ONLY_NAME_PREFIXES = ("list_", "describe_", "get_", "check_")
 TOOL_TITLE_OVERRIDES = {
+    "get_external_sql_schema": "Get external SQL schema",
     "execute_external_api_query": "Execute external API query",
     "execute_external_sql_query": "Execute external SQL query",
     "get_api_docs_urls": "Get API docs URLs",
@@ -24,6 +25,7 @@ TOOL_TITLE_OVERRIDES = {
     "update_connection_unsafe": "Update connection (unsafe)",
 }
 OPEN_WORLD_TOOL_NAMES = {
+    "get_external_sql_schema",
     "execute_external_api_query",
     "execute_external_sql_query",
     "execute_external_search_query",

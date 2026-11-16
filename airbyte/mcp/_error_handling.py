@@ -209,7 +209,16 @@ def _cloud_problem_text(problem: CloudErrorInfo, error: BaseException) -> str:
             ),
             None,
         )
-    return f"{problem.message} {guidance}".rstrip() if guidance else problem.message
+    text = f"{problem.message} {guidance}".rstrip() if guidance else problem.message
+    destination_guidance = next(
+        (cause.guidance for cause in _chain(error) if isinstance(cause, SqlDestinationInputError)),
+        None,
+    )
+    return f"{text} {destination_guidance}" if destination_guidance else text
+
+
+class SqlDestinationInputError(AirbyteLibInputError):
+    """An invalid SQL destination with locally discovered replacement IDs."""
 
 
 def format_user_facing_error(error: BaseException) -> str:

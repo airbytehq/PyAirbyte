@@ -603,7 +603,7 @@ class CloudConnector:  # noqa: PLR0904  # Too many public methods
 
     def execute_sql_query(
         self,
-        sql: str,
+        sql: str | None,
         *,
         sql_dialect: str | None = None,
         page_size: int | None = None,
@@ -617,7 +617,8 @@ class CloudConnector:  # noqa: PLR0904  # Too many public methods
 
         `sql_dialect` defaults to the dialect registered for this connector's definition.
         `dry_run=True` validates the statement and returns the result columns without
-        scanning rows. Requires external access to be enabled for this connector in its
+        scanning rows. Pass `sql=None` with `cursor` to resume a paginated result.
+        Requires external access to be enabled for this connector in its
         organization's Context Layer settings. Connectors without SQL passthrough fail
         with the Agents API's own error.
         """
