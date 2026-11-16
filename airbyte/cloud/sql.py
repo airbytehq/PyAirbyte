@@ -104,7 +104,7 @@ def get_sql_schema(
         if not all(isinstance(part, str) and part for part in parts):
             raise AirbyteCloudError(message="SQL discovery returned an unqualified table name.")
         names = [str(part) for part in parts]
-        if table_name_contains and table_name_contains.casefold() not in ".".join(names).casefold():
+        if table_name_contains and table_name_contains.casefold() not in names[-1].casefold():
             continue
         tables.append(names)
     warnings = []

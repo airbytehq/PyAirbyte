@@ -146,6 +146,26 @@ def test_schema_filter_and_cap() -> None:
     assert result["truncated"] is True
 
 
+@pytest.mark.parametrize("prefix_part", ["table_catalog", "table_schema"])
+def test_schema_filter_ignores_database_and_schema(prefix_part: str) -> None:
+    connector = _connector()
+    other = {"table_catalog": "p", "table_schema": "d", "table_name": "other"}
+    other[prefix_part] = "users"
+    connector.execute_sql_query.side_effect = [
+        ExternalApiExecuteResult(
+            status="success",
+            result=[
+                other,
+                {"table_catalog": "p", "table_schema": "d", "table_name": "users"},
+            ],
+        ),
+        ExternalApiExecuteResult(status="success", connector_metadata={"columns": []}),
+    ]
+    result = get_sql_schema(connector, table_name_contains="USERS", max_tables=1)
+    assert result["tables"] == [{"table": "`p.d.users`", "columns": []}]
+    assert result["truncated"] is False
+
+
 @pytest.mark.parametrize("cap", [0, 101])
 def test_invalid_cap(cap: int) -> None:
     with pytest.raises(AirbyteLibInputError, match="max_tables"):
