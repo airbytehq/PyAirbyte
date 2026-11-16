@@ -12,9 +12,34 @@ by thin wrappers around the generic converters.
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Literal
+
+from airbyte_protocol.models import (
+    ConfiguredAirbyteCatalog,
+    ConfiguredAirbyteStream,
+    DestinationSyncMode,
+)
 
 from airbyte.cloud._case_conversion import camel_to_snake_keys, snake_to_camel_keys
+
+
+_CloudDestinationSyncMode = DestinationSyncMode | Literal["overwrite_dedup"]
+
+
+class _CloudConfiguredAirbyteStream(ConfiguredAirbyteStream):
+    """A `ConfiguredAirbyteStream` that also accepts Cloud's `overwrite_dedup` mode.
+
+    Airbyte Cloud supports `overwrite_dedup`, but the protocol models do not define it,
+    so validating a Cloud catalog that uses it would otherwise fail.
+    """
+
+    destination_sync_mode: _CloudDestinationSyncMode  # pyrefly: ignore[bad-override]
+
+
+class _CloudConfiguredAirbyteCatalog(ConfiguredAirbyteCatalog):
+    """A `ConfiguredAirbyteCatalog` whose streams accept Cloud-only destination sync modes."""
+
+    streams: list[_CloudConfiguredAirbyteStream]  # pyrefly: ignore[bad-override]
 
 
 def _normalize_catalog_to_protocol(

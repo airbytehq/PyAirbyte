@@ -620,3 +620,32 @@ def test_replace_connection_catalog_forwards_source_catalog_id(
 
     request.assert_called_once()
     assert request.call_args.kwargs["json"]["sourceCatalogId"] == "source-catalog-id"
+
+
+def test_overwrite_dedup_stream_round_trips_when_another_stream_is_updated(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    deduped = _stream_entry(
+        "accounts",
+        config={
+            "syncMode": "full_refresh",
+            "destinationSyncMode": "overwrite_dedup",
+            "primaryKey": [["id"]],
+            "selected": True,
+        },
+    )
+    target = _stream_entry("users")
+    original_deduped = deepcopy(deduped)
+    _, replace_catalog, _ = _mock_catalog_api(monkeypatch, _catalog(deduped, target))
+
+    result = _connection().update_stream_configs([
+        StreamConfigOverride(
+            stream_name="users",
+            destination_sync_mode=DestinationSyncMode.overwrite,
+        )
+    ])
+
+    saved_catalog = replace_catalog.call_args.kwargs["configured_catalog_dict"]
+    assert saved_catalog["streams"][0] == original_deduped
+    assert saved_catalog["streams"][1]["config"]["destinationSyncMode"] == "overwrite"
+    assert [stream.name for stream in result.updated_streams] == ["users"]
