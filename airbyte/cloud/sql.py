@@ -93,8 +93,16 @@ def get_sql_schema(
         raise AirbyteCloudError(
             message="SQL table discovery failed.", context={"result": discovery}
         )
+    payload = discovery.result
+    if (
+        not isinstance(payload, dict)
+        or not isinstance(payload.get("data"), list)
+        or not isinstance(payload.get("meta"), dict)
+    ):
+        raise AirbyteCloudError(message="SQL table discovery returned no row metadata.")
+    metadata = payload["meta"]
     tables = []
-    for entity in discovery.entities:
+    for entity in payload["data"]:
         row = {key.lower(): value for key, value in entity.items()}
         parts = [
             row.get("table_catalog", row.get("database_name")),
@@ -123,8 +131,9 @@ def get_sql_schema(
         described = connector.execute_sql_query(f"DESCRIBE TABLE {qualified}")
         if described.errors or described.status != "success":
             raise AirbyteCloudError(message=f"SQL column discovery failed for {qualified}.")
-        columns = described.connector_metadata.model_extra or {}
-        if "columns" not in columns:
+        described_payload = described.result
+        columns = described_payload.get("meta") if isinstance(described_payload, dict) else None
+        if not isinstance(columns, dict) or not isinstance(columns.get("columns"), list):
             raise AirbyteCloudError(
                 message=f"SQL column discovery returned no metadata for {qualified}."
             )
@@ -140,14 +149,13 @@ def get_sql_schema(
                 ],
             }
         )
-    metadata = discovery.connector_metadata.model_extra or {}
     return {
         "dialect": dialect,
         "tables": result,
         "truncated": (
             len(tables) > max_tables
             or bool(metadata.get("truncated"))
-            or discovery.connector_metadata.has_next_page is True
+            or bool(metadata.get("next_cursor"))
         ),
         "warnings": warnings,
     }

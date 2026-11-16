@@ -45,6 +45,31 @@ def _connector(dialect: str = "bigquery") -> MagicMock:
     return connector
 
 
+def _sql_result(
+    rows: list[dict[str, str]],
+    columns: list[dict[str, str]] | None = None,
+    *,
+    dialect: str = "bigquery",
+    truncated: bool = False,
+    next_cursor: str | None = None,
+) -> ExternalApiExecuteResult:
+    return ExternalApiExecuteResult(
+        status="success",
+        result={
+            "data": rows,
+            "meta": {
+                "engine": dialect,
+                "sql_dialect": dialect,
+                "row_count": len(rows),
+                "columns": columns or [],
+                "truncated": truncated,
+                "next_cursor": next_cursor,
+                "took_ms": 1,
+            },
+        },
+    )
+
+
 @pytest.mark.parametrize("dialect", ["bigquery", "snowflake"])
 def test_schema_columns_and_meanings(dialect: str) -> None:
     connector = _connector(dialect)
@@ -85,15 +110,14 @@ def test_schema_columns_and_meanings(dialect: str) -> None:
         else {"database_name": "project", "schema_name": "dataset", "name": "users"}
     )
     connector.execute_sql_query.side_effect = [
-        ExternalApiExecuteResult(status="success", result=[row]),
-        ExternalApiExecuteResult(
-            status="success",
-            connector_metadata={
-                "columns": [
-                    {"name": "created_at", "type": "TIMESTAMP"},
-                    {"name": "payload", "type": "JSON"},
-                ]
-            },
+        _sql_result([row], dialect=dialect),
+        _sql_result(
+            [],
+            [
+                {"name": "created_at", "type": "TIMESTAMP"},
+                {"name": "payload", "type": "JSON"},
+            ],
+            dialect=dialect,
         ),
     ]
     result = get_sql_schema(connector)
@@ -114,9 +138,7 @@ def test_schema_columns_and_meanings(dialect: str) -> None:
 
 def test_empty_schema() -> None:
     connector = _connector()
-    connector.execute_sql_query.return_value = ExternalApiExecuteResult(
-        status="success", result=[]
-    )
+    connector.execute_sql_query.return_value = _sql_result([])
     assert get_sql_schema(connector)["tables"] == []
 
 
@@ -151,9 +173,8 @@ def test_conflicting_field_meanings_stay_blank(last_description: str) -> None:
         )
     ]
     connector.execute_sql_query.side_effect = [
-        ExternalApiExecuteResult(
-            status="success",
-            result=[
+        _sql_result(
+            [
                 {
                     "table_catalog": "project",
                     "table_schema": "dataset",
@@ -161,36 +182,38 @@ def test_conflicting_field_meanings_stay_blank(last_description: str) -> None:
                 }
             ],
         ),
-        ExternalApiExecuteResult(
-            status="success",
-            connector_metadata={"columns": [{"name": "id", "type": "INT64"}]},
-        ),
+        _sql_result([], [{"name": "id", "type": "INT64"}]),
     ]
     assert get_sql_schema(connector)["tables"] == [
         {"table": "`project.dataset.users`", "columns": ["id INT64 - "]}
     ]
 
 
-@pytest.mark.parametrize("has_next_page", [False, True])
-def test_schema_reports_discovery_pagination(has_next_page: bool) -> None:
+@pytest.mark.parametrize(
+    "truncated,next_cursor", [(False, None), (True, None), (False, "cursor")]
+)
+def test_schema_reports_discovery_pagination(
+    truncated: bool, next_cursor: str | None
+) -> None:
     connector = _connector()
-    connector.execute_sql_query.return_value = ExternalApiExecuteResult(
-        status="success", result=[], connector_metadata={"has_next_page": has_next_page}
+    connector.execute_sql_query.return_value = _sql_result(
+        [], truncated=truncated, next_cursor=next_cursor
     )
-    assert get_sql_schema(connector)["truncated"] is has_next_page
+    assert get_sql_schema(connector)["truncated"] is (
+        truncated or next_cursor is not None
+    )
 
 
 def test_schema_filter_and_cap() -> None:
     connector = _connector()
     connector.execute_sql_query.side_effect = [
-        ExternalApiExecuteResult(
-            status="success",
-            result=[
+        _sql_result(
+            [
                 {"table_catalog": "p", "table_schema": "d", "table_name": name}
                 for name in ("other", "users", "users_old")
             ],
         ),
-        ExternalApiExecuteResult(status="success", connector_metadata={"columns": []}),
+        _sql_result([]),
     ]
     result = get_sql_schema(connector, table_name_contains="USERS", max_tables=1)
     assert [table["table"] for table in result["tables"]] == ["`p.d.users`"]
@@ -203,14 +226,13 @@ def test_schema_filter_ignores_database_and_schema(prefix_part: str) -> None:
     other = {"table_catalog": "p", "table_schema": "d", "table_name": "other"}
     other[prefix_part] = "users"
     connector.execute_sql_query.side_effect = [
-        ExternalApiExecuteResult(
-            status="success",
-            result=[
+        _sql_result(
+            [
                 other,
                 {"table_catalog": "p", "table_schema": "d", "table_name": "users"},
             ],
         ),
-        ExternalApiExecuteResult(status="success", connector_metadata={"columns": []}),
+        _sql_result([]),
     ]
     result = get_sql_schema(connector, table_name_contains="USERS", max_tables=1)
     assert result["tables"] == [{"table": "`p.d.users`", "columns": []}]
@@ -229,6 +251,24 @@ def test_metadata_failure_propagates() -> None:
         message="Warehouse unavailable"
     )
     with pytest.raises(AirbyteCloudError, match="Warehouse unavailable"):
+        get_sql_schema(connector)
+
+
+@pytest.mark.parametrize("stage", ["tables", "columns"])
+def test_missing_sql_payload_metadata(stage: str) -> None:
+    connector = _connector()
+    malformed = ExternalApiExecuteResult(status="success", result={"data": []})
+    connector.execute_sql_query.side_effect = (
+        [malformed]
+        if stage == "tables"
+        else [
+            _sql_result([
+                {"table_catalog": "p", "table_schema": "d", "table_name": "users"}
+            ]),
+            malformed,
+        ]
+    )
+    with pytest.raises(AirbyteCloudError, match="metadata"):
         get_sql_schema(connector)
 
 
