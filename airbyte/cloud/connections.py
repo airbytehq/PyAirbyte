@@ -22,6 +22,7 @@ from airbyte.cloud._catalog_merge import (
     _stream_descriptor,
 )
 from airbyte.cloud._connection_catalog import (
+    _CloudConfiguredAirbyteCatalog,
     _denormalize_catalog_to_api,
     _is_protocol_catalog_format,
     _normalize_catalog_to_protocol,
@@ -1210,12 +1211,12 @@ class CloudConnection:  # noqa: PLR0904  # Too many public methods
                 context={"connection_id": self.connection_id},
             )
 
-        old_catalog = ConfiguredAirbyteCatalog.model_validate(
+        old_catalog = _CloudConfiguredAirbyteCatalog.model_validate(
             _normalize_catalog_to_protocol(current_catalog)
         )
         validate_discovered_catalog = base_catalog is not None
         base_catalog = current_catalog if base_catalog is None else base_catalog
-        catalog = ConfiguredAirbyteCatalog.model_validate(
+        catalog = _CloudConfiguredAirbyteCatalog.model_validate(
             _normalize_catalog_to_protocol(base_catalog)
         )
         available_streams = _index_catalog_streams(
