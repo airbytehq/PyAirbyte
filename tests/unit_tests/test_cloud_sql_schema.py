@@ -61,7 +61,14 @@ def _sql_result(
                 "engine": dialect,
                 "sql_dialect": dialect,
                 "row_count": len(rows),
-                "columns": columns or [],
+                "columns": (
+                    columns
+                    if columns is not None
+                    else [
+                        {"name": name, "type": "STRING"}
+                        for name in (rows[0] if rows else {})
+                    ]
+                ),
                 "truncated": truncated,
                 "next_cursor": next_cursor,
                 "took_ms": 1,
@@ -140,6 +147,207 @@ def test_empty_schema() -> None:
     connector = _connector()
     connector.execute_sql_query.return_value = _sql_result([])
     assert get_sql_schema(connector)["tables"] == []
+
+
+@pytest.mark.parametrize("dialect", ["bigquery", "snowflake"])
+def test_schema_scopes_discovery_before_filter_and_cap(dialect: str) -> None:
+    connector = _connector(dialect)
+    quote = "`" if dialect == "bigquery" else '"'
+    scoped_sql = f"SHOW TABLES IN SCHEMA {quote}project{quote}.{quote}dataset{quote}"
+    other_tables = [
+        {
+            "table_catalog": "project",
+            "table_schema": "other",
+            "table_name": f"other_{i}",
+            "table_type": "BASE TABLE",
+        }
+        for i in range(1000)
+    ]
+    own_tables = [
+        {
+            "table_catalog": "project",
+            "table_schema": "dataset",
+            "table_name": name,
+            "table_type": "BASE TABLE",
+        }
+        for name in ("other", "linear_issues", "linear_teams")
+    ]
+
+    def execute(sql: str, **kwargs: object) -> ExternalApiExecuteResult:
+        if sql == "SHOW TABLES":
+            return _sql_result(other_tables, truncated=True, next_cursor="project-page")
+        if sql == scoped_sql:
+            return _sql_result(own_tables, dialect=dialect)
+        assert sql.startswith("DESCRIBE TABLE ")
+        return _sql_result([], [{"name": "id", "type": "STRING"}], dialect=dialect)
+
+    connector.execute_sql_query.side_effect = execute
+    result = get_sql_schema(connector, table_name_contains="linear", max_tables=2)
+    assert [table["table"] for table in result["tables"]] == (
+        ["`project.dataset.linear_issues`", "`project.dataset.linear_teams`"]
+        if dialect == "bigquery"
+        else [
+            '"project"."dataset"."linear_issues"',
+            '"project"."dataset"."linear_teams"',
+        ]
+    )
+    assert result["truncated"] is False
+    assert result["warnings"] == []
+    connector.execute_sql_query.assert_any_call(scoped_sql, page_size=1000)
+
+
+@pytest.mark.parametrize("dialect", ["bigquery", "snowflake"])
+@pytest.mark.parametrize(
+    "definition,namespace_format,expected",
+    [
+        ("source", None, "source_a"),
+        ("custom_format", "raw_${SOURCE_NAMESPACE}", "raw_source_a"),
+        ("destination", None, "dataset"),
+    ],
+)
+def test_schema_uses_selected_connection_namespaces(
+    dialect: str, definition: str, namespace_format: str | None, expected: str
+) -> None:
+    connector = _connector(dialect)
+    connection = SimpleNamespace(
+        destination_id="destination-1",
+        table_prefix="linear_",
+        namespace_definition=definition,
+        namespace_format=namespace_format,
+        dump_raw_catalog=lambda: {
+            "streams": [
+                {
+                    "selected": True,
+                    "stream": {"name": "issues", "namespace": "source_a"},
+                },
+                {
+                    "selected": True,
+                    "stream": {"name": "teams", "namespace": "source_a"},
+                },
+                {
+                    "selected": False,
+                    "stream": {"name": "ignored", "namespace": "other"},
+                },
+            ]
+        },
+    )
+    connector.workspace.list_connections.return_value = [connection]
+    connector.execute_sql_query.return_value = _sql_result([], dialect=dialect)
+    assert get_sql_schema(connector)["tables"] == []
+    quote = "`" if dialect == "bigquery" else '"'
+    connector.execute_sql_query.assert_called_once_with(
+        f"SHOW TABLES IN SCHEMA {quote}project{quote}.{quote}{expected}{quote}",
+        page_size=1000,
+    )
+
+
+def test_schema_reads_scoped_pages_before_filtering_and_capping() -> None:
+    connector = _connector()
+    connector.execute_sql_query.side_effect = [
+        _sql_result(
+            [
+                {
+                    "table_catalog": "project",
+                    "table_schema": "dataset",
+                    "table_name": "other",
+                    "table_type": "BASE TABLE",
+                }
+            ],
+            truncated=True,
+            next_cursor="next-page",
+        ),
+        _sql_result([
+            {
+                "table_catalog": "project",
+                "table_schema": "dataset",
+                "table_name": "linear_issues",
+                "table_type": "BASE TABLE",
+            }
+        ]),
+        _sql_result([], [{"name": "id", "type": "STRING"}]),
+    ]
+    result = get_sql_schema(connector, table_name_contains="linear", max_tables=1)
+    assert result["tables"] == [
+        {"table": "`project.dataset.linear_issues`", "columns": ["id STRING - "]}
+    ]
+    assert result["truncated"] is False
+    connector.execute_sql_query.assert_any_call(
+        None, page_size=1000, cursor="next-page"
+    )
+
+
+def test_schema_without_known_namespace_does_not_scan_project() -> None:
+    connector = _connector()
+    connector.configuration = {"project_id": "project"}
+    with pytest.raises(AirbyteCloudError, match="dataset or schema"):
+        get_sql_schema(connector)
+    connector.execute_sql_query.assert_not_called()
+
+
+def test_schema_connection_failure_falls_back_to_configured_dataset() -> None:
+    connector = _connector()
+    connector.workspace.list_connections.side_effect = AirbyteCloudError(
+        message="Unavailable"
+    )
+    connector.execute_sql_query.return_value = _sql_result([])
+    result = get_sql_schema(connector)
+    assert result["tables"] == []
+    assert result["warnings"] == [
+        "Connection namespaces and source field descriptions are unavailable."
+    ]
+    connector.execute_sql_query.assert_called_once_with(
+        "SHOW TABLES IN SCHEMA `project`.`dataset`", page_size=1000
+    )
+
+
+def test_schema_combines_connection_schemas_before_applying_cap() -> None:
+    connector = _connector()
+    connector.workspace.list_connections.return_value = [
+        SimpleNamespace(
+            destination_id="destination-1",
+            table_prefix="linear_",
+            namespace_definition="source",
+            namespace_format=None,
+            dump_raw_catalog=lambda: {
+                "streams": [
+                    {"selected": True, "stream": {"name": "issues", "namespace": "a"}},
+                    {"selected": True, "stream": {"name": "teams", "namespace": "b"}},
+                ]
+            },
+        )
+    ]
+    connector.execute_sql_query.side_effect = [
+        _sql_result([
+            {
+                "table_catalog": "project",
+                "table_schema": "a",
+                "table_name": "linear_issues",
+                "table_type": "BASE TABLE",
+            }
+        ]),
+        _sql_result([
+            {
+                "table_catalog": "project",
+                "table_schema": "b",
+                "table_name": "linear_teams",
+                "table_type": "BASE TABLE",
+            }
+        ]),
+        _sql_result([]),
+    ]
+    result = get_sql_schema(connector, table_name_contains="linear", max_tables=1)
+    assert result["tables"] == [{"table": "`project.a.linear_issues`", "columns": []}]
+    assert result["truncated"] is True
+    assert result["warnings"] == [
+        "Schema inventory is incomplete. Narrow `table_name_contains` or increase "
+        "`max_tables` (up to 100)."
+    ]
+    connector.execute_sql_query.assert_any_call(
+        "SHOW TABLES IN SCHEMA `project`.`a`", page_size=1000
+    )
+    connector.execute_sql_query.assert_any_call(
+        "SHOW TABLES IN SCHEMA `project`.`b`", page_size=1000
+    )
 
 
 @pytest.mark.parametrize(

@@ -502,6 +502,21 @@ def test_execute_sql_query_dry_run(
     assert calls[0]["request_body"]["params"]["dry_run"] is True
 
 
+def test_execute_sql_query_continuation(monkeypatch: pytest.MonkeyPatch) -> None:
+    workspace = _make_workspace(monkeypatch)
+    _patch_context_layer(monkeypatch)
+    calls = _patch_execute(monkeypatch, {"data": {"data": [], "meta": {"columns": []}}})
+    connector = _seed_destination(workspace, "connector-1", SNOWFLAKE_DEFINITION_ID)
+
+    result = connector.execute_sql_query(None, cursor="next-page")
+
+    assert result.status == "success"
+    params = calls[0]["request_body"]["params"]
+    assert params["sql"] is None
+    assert params["cursor"] == "next-page"
+    assert params["dry_run"] is False
+
+
 def test_execute_api_query_works_on_destinations(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

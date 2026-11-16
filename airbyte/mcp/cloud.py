@@ -2255,10 +2255,10 @@ def get_external_sql_schema(
 ) -> dict[str, Any] | ExternalApiExecuteResult:
     """Get qualified SQL tables and compact columns: `name type - meaning`.
 
-    Describes warehouse metadata without reading data rows. Meanings use synced source
-    field descriptions when available, otherwise blank. JSON/ARRAY/OBJECT/STRUCT types
-    need dialect-specific extraction
-    functions. Covers at most `max_tables` matching tables from the discovery page;
+    Describes warehouse metadata in connection namespaces, falling back to the configured
+    dataset/schema, without reading data rows. Meanings use synced source field descriptions
+    when available, otherwise blank. JSON/ARRAY/OBJECT/STRUCT types need dialect-specific
+    extraction functions. Covers at most `max_tables` name-filtered tables across scoped pages;
     `truncated` means the inventory is incomplete. Does not sample or search records.
     """
     connector = _get_sql_destination(ctx, workspace_id, connector_id)
