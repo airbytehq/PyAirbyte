@@ -1,0 +1,15 @@
+name: Cloud MCP bug report
+description: Report a bug in the Airbyte Cloud MCP server.
+labels: [airbyte-mcp-beta, bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Don't paste API keys, client secrets, passwords, or connector credentials into this issue. GitHub issues in this repository are public.
+  - type: textarea
+    id: description
+    attributes:
+      label: Description
+      description: What happened, what you expected, and the steps or tool calls that led to it.
+    validations:
+      required: true

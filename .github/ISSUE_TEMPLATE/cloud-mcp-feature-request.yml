@@ -1,0 +1,15 @@
+name: Cloud MCP feature request
+description: Request a feature for the Airbyte Cloud MCP server.
+labels: [airbyte-mcp-beta, enhancement]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Don't paste API keys, client secrets, passwords, or connector credentials into this issue. GitHub issues in this repository are public.
+  - type: textarea
+    id: description
+    attributes:
+      label: Description
+      description: The problem you want solved and the feature you're proposing.
+    validations:
+      required: true
