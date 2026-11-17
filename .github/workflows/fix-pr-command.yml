@@ -148,9 +148,12 @@ jobs:
 
     - name: Push changes to '(${{ steps.vars.outputs.pr-source-repo-name-full }})'
       if: steps.git-diff.outputs.changes == 'true' || steps.git-diff-2.outputs.changes == 'true'
+      env:
+        STEP_VARS_PR_SOURCE_REPO_NAME_FULL: ${{ steps.vars.outputs.pr-source-repo-name-full }}
+        STEP_VARS_PR_SOURCE_GIT_BRANCH: ${{ steps.vars.outputs.pr-source-git-branch }}
       run: |
-        git remote add contributor https://github.com/${{ steps.vars.outputs.pr-source-repo-name-full }}.git
-        git push contributor HEAD:${{ steps.vars.outputs.pr-source-git-branch }}
+        git remote add contributor https://github.com/${STEP_VARS_PR_SOURCE_REPO_NAME_FULL}.git
+        git push contributor HEAD:${STEP_VARS_PR_SOURCE_GIT_BRANCH}
 
     - name: Append success comment
       uses: peter-evans/create-or-update-comment@e8674b075228eee787fea43ef493e45ece1004c9 # v5.0.0

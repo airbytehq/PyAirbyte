@@ -49,13 +49,15 @@ jobs:
 
     - name: Compute prerelease version
       id: version
+      env:
+        EVENT_INPUTS_PR: ${{ github.event.inputs.pr }}
       run: |
         # Get the latest tag version (strip 'v' prefix if present)
         LATEST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "v0.0.0")
         BASE_VERSION=${LATEST_TAG#v}
         # Create a unique prerelease version using PR number and run ID
         # Format: {base}.dev{pr_number}{run_id} (e.g., 0.34.0.dev825123456789)
-        PRERELEASE_VERSION="${BASE_VERSION}.dev${{ github.event.inputs.pr }}${{ github.run_id }}"
+        PRERELEASE_VERSION="${BASE_VERSION}.dev${EVENT_INPUTS_PR}${{ github.run_id }}"
         echo "version=$PRERELEASE_VERSION" >> $GITHUB_OUTPUT
         echo "Computed prerelease version: $PRERELEASE_VERSION"
     outputs:
