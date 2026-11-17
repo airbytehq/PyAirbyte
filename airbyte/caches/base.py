@@ -307,19 +307,14 @@ class CacheBase(SqlConfig, AirbyteWriterInterface):  # noqa: PLR0904
             chunksize=max_chunk_size,
         )
 
-        arrow_batches_list = []
-        arrow_schema = None
-
-        for pandas_chunk in pandas_chunks:
-            if arrow_schema is None:
-                # Initialize the schema with the first chunk
-                arrow_schema = pa.Schema.from_pandas(pandas_chunk)
-
-            # Convert each pandas chunk to an Arrow Table
-            arrow_table = pa.RecordBatch.from_pandas(pandas_chunk, schema=arrow_schema)
-            arrow_batches_list.append(arrow_table)
-
-        return ds.dataset(arrow_batches_list)
+        arrow_batches_list = [
+            pa.RecordBatch.from_pandas(pandas_chunk) for pandas_chunk in pandas_chunks
+        ]
+        # A chunk containing only nulls must not fix the type for later chunks.
+        arrow_schema = pa.unify_schemas(
+            [batch.schema for batch in arrow_batches_list], promote_options="permissive"
+        )
+        return ds.dataset([batch.cast(arrow_schema) for batch in arrow_batches_list])
 
     @final
     @property
