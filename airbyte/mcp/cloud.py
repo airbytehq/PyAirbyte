@@ -5008,6 +5008,8 @@ def _add_defaults_for_exclude_args(
     )
 
     for func, _annotations in _REGISTERED_TOOLS:
+        if func.__module__ != __name__:
+            continue
         sig = inspect.signature(func)
         needs_patch = any(
             arg_name in sig.parameters
@@ -5032,7 +5034,9 @@ def register_cloud_tools(app: FastMCP) -> None:
     """
     exclude_args = ["workspace_id"] if AIRBYTE_CLOUD_WORKSPACE_ID_IS_SET else []
     if not is_trusted_execution_enabled():
-        exclude_args.extend(("manifest_yaml_file", "testing_values_secret_name"))
+        exclude_args.extend(
+            ("manifest_yaml_file", "testing_values_secret_name", "config_secret_name")
+        )
     if exclude_args:
         _add_defaults_for_exclude_args(exclude_args)
     register_mcp_tools(

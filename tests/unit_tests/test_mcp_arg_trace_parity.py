@@ -91,6 +91,9 @@ def test_inventory_matches_fixture() -> None:
     ):
         if "testing_values_secret_name" not in plan[name]:
             expected[name].pop("testing_values_secret_name", None)
+    for name in ("deploy_connector", "update_connector_config"):
+        if "config_secret_name" not in plan[name]:
+            expected[name].pop("config_secret_name", None)
     assert plan == expected
 
 
