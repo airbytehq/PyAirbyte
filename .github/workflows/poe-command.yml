@@ -18,6 +18,15 @@ jobs:
   run-poe-command:
     runs-on: ubuntu-24.04
     steps:
+      - name: Check that the pr and comment-id inputs are numbers
+        env:
+          EVENT_INPUTS_PR: ${{ github.event.inputs.pr }}
+          EVENT_INPUTS_COMMENT_ID: ${{ github.event.inputs.comment-id }}
+        run: |
+          if [[ ! "${EVENT_INPUTS_PR}" =~ ^[0-9]*$ || ! "${EVENT_INPUTS_COMMENT_ID}" =~ ^[0-9]*$ ]]; then
+            echo "::error::The pr and comment-id inputs must be numbers."
+            exit 1
+          fi
       - name: Authenticate as GitHub App
         uses: actions/create-github-app-token@v2
         id: get-app-token
