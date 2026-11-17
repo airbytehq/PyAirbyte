@@ -211,9 +211,11 @@ jobs:
       matrix:
         include:
           - shard: cache-types-cloud
-            pytest-args: tests/integration_tests/test_all_cache_types.py -k "BigQuery or Snowflake"
+            pytest-args: tests/integration_tests/test_all_cache_types.py
+            pytest-k: BigQuery or Snowflake
           - shard: cache-types-local
-            pytest-args: tests/integration_tests/test_all_cache_types.py -k "not BigQuery and not Snowflake"
+            pytest-args: tests/integration_tests/test_all_cache_types.py
+            pytest-k: not BigQuery and not Snowflake
           - shard: cloud
             pytest-args: tests/integration_tests/cloud/
           - shard: other
@@ -243,11 +245,19 @@ jobs:
       timeout-minutes: 60
       env:
         GCP_GSM_CREDENTIALS: ${{ secrets.GCP_GSM_CREDENTIALS }}
-      run: >
-        uv run coverage run -m pytest
-        --verbose --durations=10
-        ${{ matrix.pytest-args }}
-        -m "not linting and not super_slow and not flaky"
+        MATRIX_PYTEST_ARGS: ${{ matrix.pytest-args }}
+        MATRIX_PYTEST_K: ${{ matrix.pytest-k }}
+      run: |
+        # Unquoted on purpose: pytest-args is a space-separated list of paths and flags.
+        pytest_args=(${MATRIX_PYTEST_ARGS})
+        if [[ -n "${MATRIX_PYTEST_K}" ]]; then
+          pytest_args+=(-k "${MATRIX_PYTEST_K}")
+        fi
+
+        uv run coverage run -m pytest \
+          --verbose --durations=10 \
+          "${pytest_args[@]}" \
+          -m "not linting and not super_slow and not flaky"
 
     - name: Print Coverage Report
       if: always()
