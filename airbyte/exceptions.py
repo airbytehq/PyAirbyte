@@ -357,10 +357,11 @@ class AirbyteTrustedExecutionRequiredError(AirbyteMCPError):
     tool was hidden from the tool listing.
     """
 
-    guidance = (
-        "Set `AIRBYTE_MCP_TRUSTED_EXECUTION=1` on the MCP server process and restart it. "
-        "Trusted execution is only available on the stdio transport; it can never be "
-        "enabled for an HTTP/hosted deployment."
+    guidance: str | None = (
+        "Pass resolved values directly: actual credential values inline in `config`, "
+        "or file contents instead of a file path. For a local stdio server, operators "
+        "can set `AIRBYTE_MCP_TRUSTED_EXECUTION=1` and restart. Trusted execution "
+        "cannot be enabled for HTTP/hosted servers."
     )
     feature: str | None = None
 

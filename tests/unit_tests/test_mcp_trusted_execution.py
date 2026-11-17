@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import asyncio
+import inspect
 import json
 import logging
 import os
@@ -87,6 +88,13 @@ def test_raise_if_untrusted_execution_context(
     with pytest.raises(AirbyteTrustedExecutionRequiredError) as exc_info:
         raise_if_untrusted_execution_context("some feature")
     assert exc_info.value.feature == "some feature"
+    rendered = str(exc_info.value)
+    assert "actual credential values inline in `config`" in rendered
+    assert "file contents instead of a file path" in rendered
+    assert "local stdio server" in rendered
+    assert "AIRBYTE_MCP_TRUSTED_EXECUTION=1" in rendered
+    assert "restart" in rendered
+    assert "cannot be enabled for HTTP/hosted servers" in rendered
 
 
 @pytest.mark.parametrize(
@@ -268,6 +276,13 @@ def test_manifest_file_schema_depends_on_trusted_execution(
                 return {tool.name: tool for tool in await client.list_tools()}
 
         tools = asyncio.run(list_tools())
+
+        for tool_name in ("deploy_connector", "update_connector_config"):
+            properties = tools[tool_name].input_schema["properties"]  # type: ignore[attr-defined]
+            assert ("config_secret_name" in properties) is enabled
+            if not enabled:
+                signature = inspect.signature(getattr(cloud, tool_name))
+                assert signature.parameters["config_secret_name"].default is None
 
         for tool_name in (
             "create_connector_builder_project",
