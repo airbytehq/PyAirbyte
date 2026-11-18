@@ -2929,6 +2929,52 @@ def replace_connection_catalog(
     )
 
 
+def clear_connection(
+    connection_id: str,
+    *,
+    streams: list[dict[str, str]] | None = None,
+    api_root: str,
+    config_api_root: str | None = None,
+    client_id: SecretString | None,
+    client_secret: SecretString | None,
+    bearer_token: SecretString | None,
+) -> dict[str, Any]:
+    """Clear the synced data and state of a connection, or of some of its streams.
+
+    Uses the Config API endpoint: POST /v1/connections/clear, or
+    POST /v1/connections/clear/stream when `streams` is provided.
+
+    Args:
+        connection_id: The connection ID to clear.
+        streams: Optional stream descriptors to clear, each with a `streamName` and an
+            optional `streamNamespace`. If `None`, all streams of the connection are cleared.
+        api_root: The API root URL.
+        client_id: OAuth client ID.
+        client_secret: OAuth client secret.
+        bearer_token: Bearer token for authentication (alternative to client credentials).
+        config_api_root: Optional explicit Config API root URL.
+
+    Returns:
+        Dictionary containing the JobInfoRead response for the clear job.
+    """
+    if streams is None:
+        path = "/connections/clear"
+        json: dict[str, Any] = {"connectionId": connection_id}
+    else:
+        path = "/connections/clear/stream"
+        json = {"connectionId": connection_id, "streams": streams}
+
+    return _make_config_api_request(
+        path=path,
+        json=json,
+        api_root=api_root,
+        config_api_root=config_api_root,
+        client_id=client_id,
+        client_secret=client_secret,
+        bearer_token=bearer_token,
+    )
+
+
 def get_organization_info(
     organization_id: str,
     *,

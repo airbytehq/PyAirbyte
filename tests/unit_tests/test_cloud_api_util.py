@@ -249,6 +249,30 @@ def test_get_user_id_from_bearer_token_rejects_invalid_tokens(
             {"workspaceId": "workspace-id", "organizationId": "org-id"},
             id="workspace-get",
         ),
+        pytest.param(
+            api_util.clear_connection,
+            {"connection_id": "connection-id"},
+            "/connections/clear",
+            {"connectionId": "connection-id"},
+            {"job": {"id": 77}, "attempts": []},
+            {"job": {"id": 77}, "attempts": []},
+            id="clear-connection",
+        ),
+        pytest.param(
+            api_util.clear_connection,
+            {
+                "connection_id": "connection-id",
+                "streams": [{"streamName": "users", "streamNamespace": "public"}],
+            },
+            "/connections/clear/stream",
+            {
+                "connectionId": "connection-id",
+                "streams": [{"streamName": "users", "streamNamespace": "public"}],
+            },
+            {"job": {"id": 78}, "attempts": []},
+            {"job": {"id": 78}, "attempts": []},
+            id="clear-connection-streams",
+        ),
     ],
 )
 def test_config_api_helpers_forward_requests(

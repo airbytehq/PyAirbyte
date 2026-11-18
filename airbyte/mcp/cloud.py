@@ -2879,6 +2879,78 @@ def permanently_delete_cloud_connection(
 
 
 @mcp_tool(
+    destructive=True,
+    open_world=True,
+    extra_help_text=CLOUD_AUTH_TIP_TEXT,
+)
+def clear_cloud_connection(
+    ctx: Context,
+    connection_id: Annotated[
+        str,
+        Field(description="The ID of the connection to clear."),
+    ],
+    name: Annotated[
+        str,
+        Field(description="The expected name of the connection (for verification)."),
+    ],
+    *,
+    stream_names: Annotated[
+        str | list[str] | None,
+        Field(
+            description=(
+                "Optional stream name or list of stream names to clear. "
+                "If not provided, all streams of the connection are cleared."
+            ),
+            default=None,
+        ),
+    ] = None,
+    workspace_id: Annotated[
+        str | None,
+        Field(
+            description=WORKSPACE_ID_TIP_TEXT,
+            default=None,
+        ),
+    ],
+) -> str:
+    """Clear the synced data of a connection on Airbyte Cloud, for all or selected streams.
+
+    This removes the records the connection wrote to the destination and resets the saved
+    state of the cleared streams, so the next sync reads them from the start. It cannot be
+    undone. The clear runs as a job; use `get_cloud_sync_status` with the returned job ID to
+    follow it.
+
+    The provided name must match the actual name of the connection for the operation to proceed.
+    This is a safety measure to ensure you are clearing the correct connection.
+    """
+    check_guid_created_in_session(connection_id)
+    workspace: CloudWorkspace = _get_cloud_workspace(ctx, workspace_id)
+    connection = workspace.get_connection(connection_id=connection_id)
+    actual_name: str = cast(str, connection.name)
+
+    if actual_name != name:
+        raise PyAirbyteInputError(
+            message=(
+                f"Name mismatch: expected '{name}' but found '{actual_name}'. "
+                "The provided name must exactly match the connection's actual name. "
+                "This is a safety measure to prevent clearing the wrong connection."
+            ),
+            context={
+                "connection_id": connection_id,
+                "expected_name": name,
+                "actual_name": actual_name,
+            },
+        )
+
+    resolved_stream_names = resolve_list_of_strings(stream_names)
+    clear_result = connection.clear(stream_names=resolved_stream_names)
+    scope = "all streams" if resolved_stream_names is None else f"streams {resolved_stream_names}"
+    return (
+        f"Clear started for {scope} of connection '{actual_name}' (ID: {connection_id}). "
+        f"Job ID is '{clear_result.job_id}' and job URL is: {clear_result.job_url}"
+    )
+
+
+@mcp_tool(
     open_world=True,
     extra_help_text=CLOUD_AUTH_TIP_TEXT,
 )
