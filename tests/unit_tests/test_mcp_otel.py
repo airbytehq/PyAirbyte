@@ -881,7 +881,7 @@ def test_install_respects_explicit_environ(
         exporter = build.call_args.args[0]
         # The exporter has no public configuration getters; never export to it.
         assert exporter._endpoint == "https://ambient.invalid/v1/traces"
-        assert exporter._headers["x-source"] == "ambient"
+        assert exporter._client._headers["x-source"] == "ambient"
         assert provider.resource.attributes["service.name"] == "ambient-service"
         assert (
             observability.INTENT_INSTRUCTIONS_SENTENCE.strip() in server.instructions
