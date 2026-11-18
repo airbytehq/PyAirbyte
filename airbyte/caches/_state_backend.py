@@ -173,8 +173,8 @@ class SqlStateWriter(StateWriterBase):
                     CacheStreamStateModel.table_name == table_prefix + stream_name
                 ).delete()
 
-            # This commit prevents "duplicate key" errors but (in theory) should not be necessary.
-            session.commit()
+            # The bulk delete executes immediately, before the pending insert is flushed.
+            # Commit both together so readers never see a missing state and failures roll back.
             session.add(new_state)
             session.commit()
 
