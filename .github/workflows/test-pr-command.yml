@@ -96,7 +96,7 @@ jobs:
     # update the PR checks status.
     - name: Create "Pending" Check Status
       if: always() && !cancelled()
-      uses: LouisBrunner/checks-action@6b626ffbad7cc56fd58627f774b9067e6118af23 # v2.0.0
+      uses: LouisBrunner/checks-action@937cbbcde3259005b50746dc91cde29098aac2ff # v3.1.0
       with:
         name: "Pytest (All, Python ${{ matrix.python-version }}, ${{ matrix.os }})"
         repo: "airbytehq/PyAirbyte"  # Post to the main repo, not the fork
@@ -143,7 +143,7 @@ jobs:
     # update the PR checks status.
     - name: Create Final Check Status
       if: always()
-      uses: LouisBrunner/checks-action@6b626ffbad7cc56fd58627f774b9067e6118af23 # v2.0.0
+      uses: LouisBrunner/checks-action@937cbbcde3259005b50746dc91cde29098aac2ff # v3.1.0
       with:
         name: "Pytest (All, Python ${{ matrix.python-version }}, ${{ matrix.os }})"
         repo: "airbytehq/PyAirbyte"  # Post to the main repo, not the fork
