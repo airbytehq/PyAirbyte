@@ -38,6 +38,6 @@ jobs:
         git diff-index --quiet HEAD || git commit -m "Format code with black"
 
     - name: Push changes
-      uses: ad-m/github-push-action@77c5b412c50b723d2a4fbc6d71fb5723bcd439aa # v1.0.0
+      uses: ad-m/github-push-action@881a6320fdb16eb5318c5054f31c218aec2b324c # v1.3.0
       with:
         github_token: ${{ secrets.GITHUB_TOKEN }}
