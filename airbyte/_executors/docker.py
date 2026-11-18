@@ -4,11 +4,14 @@ from __future__ import annotations
 import logging
 import shutil
 import subprocess
+import tempfile
 from contextlib import suppress
 from pathlib import Path, PurePosixPath
 
 from airbyte import exceptions as exc
 from airbyte._executors.base import Executor
+from airbyte.constants import DEFAULT_PROJECT_DIR, TEMP_DIR_OVERRIDE
+from airbyte.logs import warn_once
 
 
 logger = logging.getLogger("airbyte")
@@ -16,6 +19,34 @@ logger = logging.getLogger("airbyte")
 
 DEFAULT_AIRBYTE_CONTAINER_TEMP_DIR = "/airbyte/tmp"
 """Default temp dir in an Airbyte connector's Docker image."""
+
+
+def get_local_mount_dir(connector_name: str) -> Path:
+    """Return the host directory to mount at `/local` in a connector's Docker container.
+
+    This is `<project dir>/<connector_name>`, where the project dir is `AIRBYTE_PROJECT_DIR` or
+    the current working directory. If that directory can't be created, for example because
+    `AIRBYTE_PROJECT_DIR` is unset and the working directory is read-only, this falls back to
+    `<temp dir>/airbyte/<connector_name>` and emits a warning. The temp dir is
+    `AIRBYTE_TEMP_DIR` if set, otherwise the system default.
+    """
+    local_mount_dir = DEFAULT_PROJECT_DIR / connector_name
+    try:
+        local_mount_dir.mkdir(parents=True, exist_ok=True)
+    except OSError as ex:
+        temp_dir = TEMP_DIR_OVERRIDE or Path(tempfile.gettempdir())
+        fallback_dir = temp_dir / "airbyte" / connector_name
+        warn_once(
+            f"Could not create the Docker volume directory for `{connector_name}`: {ex}. "
+            f"Falling back to `{fallback_dir}`. You can choose where connector files are "
+            "stored by setting the `AIRBYTE_PROJECT_DIR` environment variable to a writable "
+            "directory.",
+            with_stack=False,
+        )
+        fallback_dir.mkdir(parents=True, exist_ok=True)
+        return fallback_dir
+
+    return local_mount_dir
 
 
 class DockerExecutor(Executor):

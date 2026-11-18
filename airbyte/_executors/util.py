@@ -15,13 +15,17 @@ from rich import print  # noqa: A004  # Allow shadowing the built-in
 
 from airbyte import exceptions as exc
 from airbyte._executors.declarative import DeclarativeExecutor
-from airbyte._executors.docker import DEFAULT_AIRBYTE_CONTAINER_TEMP_DIR, DockerExecutor
+from airbyte._executors.docker import (
+    DEFAULT_AIRBYTE_CONTAINER_TEMP_DIR,
+    DockerExecutor,
+    get_local_mount_dir,
+)
 from airbyte._executors.local import PathExecutor
 from airbyte._executors.noop import NoOpExecutor
 from airbyte._executors.python import VenvExecutor
 from airbyte._util.meta import which
 from airbyte._util.telemetry import EventState, log_install_state  # Non-public API
-from airbyte.constants import AIRBYTE_OFFLINE_MODE, DEFAULT_PROJECT_DIR, TEMP_DIR_OVERRIDE
+from airbyte.constants import AIRBYTE_OFFLINE_MODE, TEMP_DIR_OVERRIDE
 from airbyte.registry import ConnectorMetadata, InstallType, get_connector_metadata
 from airbyte.version import get_version
 
@@ -301,8 +305,7 @@ def get_connector_executor(  # noqa: PLR0912, PLR0913, PLR0914, PLR0915, C901 # 
         host_temp_dir = TEMP_DIR_OVERRIDE or Path(tempfile.gettempdir())
         container_temp_dir = DEFAULT_AIRBYTE_CONTAINER_TEMP_DIR
 
-        local_mount_dir = DEFAULT_PROJECT_DIR / name
-        local_mount_dir.mkdir(exist_ok=True)
+        local_mount_dir = get_local_mount_dir(name)
 
         volumes = {
             local_mount_dir: "/local",

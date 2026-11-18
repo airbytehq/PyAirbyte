@@ -165,11 +165,13 @@ def duckdb_destination_to_cache(
     # The DuckDB destination Docker container mounts a host directory to
     # `/local` inside the container.  Paths written as `/local/foo.duckdb`
     # actually live at `<project_dir>/destination-duckdb/foo.duckdb` on the
-    # host.  Resolve the host-side path so the cache can open the file.
+    # host, or in the temp-dir fallback when the project dir isn't writable.
+    # Resolve the host-side path the same way the executor does so the cache
+    # can open the file.
     if db_path.startswith(("/local/", "/local\\")):
-        from airbyte.constants import DEFAULT_PROJECT_DIR  # noqa: PLC0415
+        from airbyte._executors.docker import get_local_mount_dir  # noqa: PLC0415
 
-        host_path = str(DEFAULT_PROJECT_DIR / "destination-duckdb" / db_path[len("/local/") :])
+        host_path = str(get_local_mount_dir("destination-duckdb") / db_path[len("/local/") :])
         db_path = host_path
 
     return DuckDBCache(
