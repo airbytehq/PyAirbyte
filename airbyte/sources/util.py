@@ -143,7 +143,7 @@ def get_benchmark_source(
                 message="Invalid number format.",
                 original_exception=ex,
                 input_value=str(num_records),
-            ) from None
+            ) from ex
 
     return get_source(
         name="source-e2e-test",
